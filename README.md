@@ -83,3 +83,11 @@ Access the application at: `http://127.0.0.1:5173`
    - Reporting a bed equipment issue automatically marks the bed into `MAINTENANCE` status, preventing it from being offered to customers.
 6. **Immutable Audit Logs**:
    - Traceable owner-only records of every administrative, booking, check-in, checkout, cleaning, and financial action. Passwords and payment secrets are automatically redacted.
+
+---
+
+## 🌐 Option B Cloud Deployment (Vercel & Render)
+
+For complete instructions on launching the live production website and backend with automatic GitHub CD, see:
+👉 **[DEPLOYMENT_GUIDE.md](file:///c:/Users/Acer/Desktop/Arthayog%20dormitory/DEPLOYMENT_GUIDE.md)**
+
