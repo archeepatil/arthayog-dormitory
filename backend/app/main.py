@@ -103,6 +103,15 @@ app.include_router(staff.router, prefix=api_v1_prefix)
 app.include_router(settings_router.router, prefix=api_v1_prefix)
 app.include_router(system.router, prefix=api_v1_prefix)
 
+@app.get("/", tags=["Root"])
+def root():
+    return {
+        "message": "Arthayog Dormitory ERP Backend API is running.",
+        "frontend": "https://arthayog-frontend.onrender.com",
+        "documentation": "/docs",
+        "health": "/api/health"
+    }
+
 @app.get("/api/health", tags=["Health"])
 def health_check():
     return {
