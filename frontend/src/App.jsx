@@ -205,8 +205,11 @@ export default function App() {
   const handleOnlineBooking = async (bookingData) => {
     try {
       const res = await api.bookings.createOnline(bookingData);
-      showToast(`Booking request submitted! Your reservation #${res.booking_code} is awaiting front desk approval. Payment will be enabled once approved.`, 'info');
+      showToast(`Reservation #${res.booking_code} created! Bed held for payment.`, 'success');
       loadData();
+      // Directly launch payment modal for instant guest checkout
+      setSelectedBooking(res);
+      setPaymentModalOpen(true);
       return res;
     } catch (err) {
       showToast(err.message, 'error');

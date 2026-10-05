@@ -7,6 +7,20 @@ class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
+class SendOtpRequest(BaseModel):
+    email: EmailStr
+
+class SendOtpResponse(BaseModel):
+    message: str
+    email: EmailStr
+    otp_preview: Optional[str] = None
+
+class VerifyOtpRequest(BaseModel):
+    email: EmailStr
+    otp: str
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+
 class UserRegister(BaseModel):
     email: EmailStr
     password: str = Field(..., min_length=6)

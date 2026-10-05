@@ -46,10 +46,20 @@ def migrate_db():
                 conn.execute(text("ALTER TABLE bookings ADD COLUMN rejection_reason TEXT"))
             if "approved_by_id" not in existing_cols:
                 conn.execute(text("ALTER TABLE bookings ADD COLUMN approved_by_id INTEGER"))
-            if "approved_at" not in existing_cols:
-                conn.execute(text("ALTER TABLE bookings ADD COLUMN approved_at TIMESTAMP"))
             conn.commit()
-        except Exception as e:
-            # Not sqlite or table not created yet
+        except Exception:
             pass
+
+        # Check users table columns for OTP authentication
+        try:
+            u_info = conn.execute(text("PRAGMA table_info(users)")).fetchall()
+            u_cols = [row[1] for row in u_info]
+            if "otp_code" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN otp_code VARCHAR(10)"))
+            if "otp_expires_at" not in u_cols:
+                conn.execute(text("ALTER TABLE users ADD COLUMN otp_expires_at TIMESTAMP"))
+            conn.commit()
+        except Exception:
+            pass
+
 

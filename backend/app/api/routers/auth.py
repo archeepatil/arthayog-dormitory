@@ -6,12 +6,118 @@ from app.api.deps import get_db, get_current_user, get_client_ip
 from app.models import User, UserRole
 from app.schemas import (
     UserLogin, UserRegister, TokenResponse, UserOut,
+    SendOtpRequest, SendOtpResponse, VerifyOtpRequest,
     PasswordResetRequest, PasswordResetConfirm, VerifyEmailRequest
 )
 from app.core.security import verify_password, hash_password, create_access_token
 from app.core.audit import record_audit
 
 router = APIRouter(prefix="/auth", tags=["Authentication"])
+
+@router.post("/send-otp", response_model=SendOtpResponse)
+def send_otp(data: SendOtpRequest, request: Request, db: Session = Depends(get_db)):
+    email_clean = data.email.lower().strip()
+    user = db.query(User).filter(User.email == email_clean).first()
+
+    # Generate cryptographically secure 6-digit OTP
+    otp = str(secrets.randbelow(900000) + 100000)
+    expiry = datetime.now(timezone.utc) + timedelta(minutes=10)
+
+    if user:
+        user.otp_code = otp
+        user.otp_expires_at = expiry
+    else:
+        # Auto-provision customer guest account
+        user = User(
+            email=email_clean,
+            full_name=email_clean.split("@")[0].capitalize(),
+            role=UserRole.CUSTOMER_GUEST.value,
+            password_hash=hash_password(secrets.token_urlsafe(16)),
+            is_active=True,
+            is_verified=True,
+            otp_code=otp,
+            otp_expires_at=expiry
+        )
+        db.add(user)
+
+    db.commit()
+
+    record_audit(
+        db=db,
+        user=user,
+        action="OTP_GENERATED",
+        entity_type="User",
+        entity_id=user.id,
+        details={"email": email_clean},
+        ip_address=get_client_ip(request)
+    )
+
+    return SendOtpResponse(
+        message=f"OTP sent successfully to {email_clean}.",
+        email=email_clean,
+        otp_preview=otp
+    )
+
+@router.post("/verify-otp", response_model=TokenResponse)
+def verify_otp(data: VerifyOtpRequest, request: Request, db: Session = Depends(get_db)):
+    email_clean = data.email.lower().strip()
+    user = db.query(User).filter(User.email == email_clean).first()
+
+    if not user or not user.otp_code:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No active OTP found. Please request a new OTP."
+        )
+
+    # Check expiration
+    now = datetime.now(timezone.utc)
+    # Ensure timezone awareness comparison
+    otp_exp = user.otp_expires_at
+    if otp_exp and otp_exp.tzinfo is None:
+        otp_exp = otp_exp.replace(tzinfo=timezone.utc)
+
+    if not otp_exp or otp_exp < now:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="OTP has expired. Please request a new OTP."
+        )
+
+    if user.otp_code.strip() != data.otp.strip():
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Incorrect OTP. Please check and try again."
+        )
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account is deactivated. Contact management."
+        )
+
+    # Success: Clear OTP
+    user.otp_code = None
+    user.otp_expires_at = None
+    if data.full_name and len(data.full_name.strip()) > 1:
+        user.full_name = data.full_name.strip()
+    if data.phone and len(data.phone.strip()) > 5:
+        user.phone = data.phone.strip()
+    user.is_verified = True
+
+    db.commit()
+    db.refresh(user)
+
+    record_audit(
+        db=db,
+        user=user,
+        action="USER_LOGGED_IN_OTP",
+        entity_type="User",
+        entity_id=user.id,
+        details={"email": user.email, "role": user.role},
+        ip_address=get_client_ip(request)
+    )
+
+    token = create_access_token(subject=user.id, role=user.role)
+    return TokenResponse(access_token=token, token_type="bearer", user=UserOut.model_validate(user))
 
 @router.post("/register", response_model=TokenResponse)
 def register(data: UserRegister, request: Request, db: Session = Depends(get_db)):

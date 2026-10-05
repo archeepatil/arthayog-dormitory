@@ -94,7 +94,8 @@ def create_online_booking(
     nights = max((data.check_out_date - data.check_in_date).days, 1)
     total_amount = round(bed.base_price_inr * nights, 2)
 
-    # Customer self-booking creates a request with PENDING_APPROVAL status (addition of this.pdf page 17-20)
+    # Online booking initiates directly with payment hold so guest can pay immediately
+    hold_timeout = datetime.now(timezone.utc) + timedelta(minutes=settings.BOOKING_HOLD_TIMEOUT_MINUTES)
     booking = Booking(
         booking_code=generate_booking_code(),
         guest_id=current_user.id if current_user else None,
@@ -104,12 +105,13 @@ def create_online_booking(
         bed_id=bed.id,
         check_in_date=data.check_in_date,
         check_out_date=data.check_out_date,
-        status=BookingStatus.PENDING_APPROVAL.value,
+        status=BookingStatus.APPROVED_PAYMENT_PENDING.value,
         booking_type=BookingType.ONLINE.value,
         notes=data.notes,
         total_amount=total_amount,
         paid_amount=0.0,
-        hold_expires_at=None
+        approved_at=datetime.now(timezone.utc),
+        hold_expires_at=hold_timeout
     )
     db.add(booking)
     db.commit()

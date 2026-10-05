@@ -26,27 +26,17 @@ def create_payment_order(
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
 
-    # Critical Security (addition of this.pdf page 20-21):
-    # Reject payment if booking is still awaiting approval or rejected
-    if booking.status == BookingStatus.PENDING_APPROVAL.value:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Payment is not available until booking request has been approved by Owner or Staff."
-        )
-
     if booking.status in [BookingStatus.CANCELLED.value, BookingStatus.EXPIRED.value, BookingStatus.REJECTED.value]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot pay for booking with status '{booking.status}'."
         )
 
-    # Customer can only pay for their own booking
-    if current_user and current_user.role == UserRole.CUSTOMER_GUEST.value:
-        if booking.guest_id and booking.guest_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only initiate payment for your own booking."
-            )
+    # If booking was pending approval, automatically transition to payment pending
+    if booking.status == BookingStatus.PENDING_APPROVAL.value:
+        booking.status = BookingStatus.APPROVED_PAYMENT_PENDING.value
+        booking.approved_at = datetime.now(timezone.utc)
+        db.commit()
 
     remaining_amount = round(booking.total_amount - booking.paid_amount, 2)
     if remaining_amount <= 0:

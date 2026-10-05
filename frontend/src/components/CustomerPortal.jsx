@@ -316,7 +316,7 @@ export default function CustomerPortal({
                 )}
 
                 <div className="pass-footer">
-                  {b.status === 'APPROVED_PAYMENT_PENDING' && onPayBooking && (
+                  {['APPROVED_PAYMENT_PENDING', 'PENDING_APPROVAL', 'PENDING_PAYMENT'].includes(b.status) && (b.paid_amount < b.total_amount) && onPayBooking && (
                     <button className="btn btn-primary btn-sm" onClick={() => onPayBooking(b)}>
                       <CreditCard size={14} /> {t('pay_now', 'Pay Now')} (₹{b.total_amount - (b.paid_amount || 0)})
                     </button>
@@ -651,11 +651,26 @@ export default function CustomerPortal({
               <div className="card booking-success-approval-banner animate-fade-in">
                 <CheckCircle2 size={24} color="#059669" />
                 <div className="banner-txt">
-                  <strong>Booking Request Submitted!</strong>
-                  <p>Your booking request has been submitted to Arthayog Dormitory. Our front desk is reviewing it. Payment will be enabled once approved.</p>
-                  <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('guest-bookings')} style={{ marginTop: '8px' }}>
-                    View in My Reservations →
-                  </button>
+                  <strong>Reservation Created & Bed Held!</strong>
+                  <p>Your bed is temporarily held. Please complete payment to instantly confirm your stay.</p>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', flexWrap: 'wrap' }}>
+                    {typeof bookingSubmittedSuccess === 'object' && onPayBooking && (
+                      <button 
+                        type="button"
+                        className="btn btn-primary btn-sm" 
+                        onClick={() => onPayBooking(bookingSubmittedSuccess)}
+                      >
+                        <CreditCard size={14} /> Pay Now (₹{bookingSubmittedSuccess.total_amount || amountDue})
+                      </button>
+                    )}
+                    <button 
+                      type="button"
+                      className="btn btn-secondary btn-sm" 
+                      onClick={() => setActiveTab('guest-bookings')}
+                    >
+                      View in My Reservations →
+                    </button>
+                  </div>
                 </div>
               </div>
             )}
