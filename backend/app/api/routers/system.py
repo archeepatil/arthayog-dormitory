@@ -262,10 +262,16 @@ def get_developer_diagnostics(
     recent_logs = db.query(AuditLog).order_by(AuditLog.created_at.desc()).limit(20).all()
     
     technical_events = []
+    import json
     for log in recent_logs:
         sanitized_details = {}
-        if log.details and isinstance(log.details, dict):
-            sanitized_details = {k: v for k, v in log.details.items() if k.lower() not in forbidden_keys}
+        if getattr(log, 'details_json', None):
+            try:
+                raw_d = json.loads(log.details_json) if isinstance(log.details_json, str) else log.details_json
+                if isinstance(raw_d, dict):
+                    sanitized_details = {k: v for k, v in raw_d.items() if str(k).lower() not in forbidden_keys}
+            except Exception:
+                sanitized_details = {}
         
         technical_events.append({
             "id": log.id,
@@ -275,6 +281,7 @@ def get_developer_diagnostics(
             "ip_address": log.ip_address,
             "details": sanitized_details
         })
+
 
     # 4. Expiry worker status
     expired_holds_cleaned = expire_unpaid_bookings(db)

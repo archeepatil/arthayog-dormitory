@@ -32,23 +32,28 @@ export default function DeveloperPortal({ onClose }) {
   const [pinging, setPinging] = useState(false);
   const [workerRunning, setWorkerRunning] = useState(false);
   const [workerMessage, setWorkerMessage] = useState('');
+  const [autoRefreshInterval, setAutoRefreshInterval] = useState(5); // Default to live 5s monitoring
+  const [lastRefreshedAt, setLastRefreshedAt] = useState(null);
 
   // Fetch telemetry
-  const loadDiagnostics = useCallback(async (activePin) => {
-    setLoading(true);
+  const loadDiagnostics = useCallback(async (activePin, isBackground = false) => {
+    if (!isBackground) setLoading(true);
     try {
       const data = await api.system.developerDiagnostics(activePin || pin);
       setDiagnostics(data);
       setIsAuthenticated(true);
+      setLastRefreshedAt(new Date());
       if (activePin) {
         sessionStorage.setItem('arthayog_dev_pin', activePin);
       }
     } catch (err) {
-      setIsAuthenticated(false);
-      sessionStorage.removeItem('arthayog_dev_pin');
-      setPinError('Invalid Developer Passcode. Access denied.');
+      if (!isBackground) {
+        setIsAuthenticated(false);
+        sessionStorage.removeItem('arthayog_dev_pin');
+        setPinError('Invalid Developer Passcode. Access denied.');
+      }
     } finally {
-      setLoading(false);
+      if (!isBackground) setLoading(false);
     }
   }, [pin]);
 
@@ -57,6 +62,16 @@ export default function DeveloperPortal({ onClose }) {
       loadDiagnostics(pin);
     }
   }, [pin, loadDiagnostics]);
+
+  // Live Auto-Refresh Polling Effect
+  useEffect(() => {
+    if (!isAuthenticated || !pin || autoRefreshInterval <= 0) return;
+    const intervalId = setInterval(() => {
+      loadDiagnostics(pin, true);
+    }, autoRefreshInterval * 1000);
+    return () => clearInterval(intervalId);
+  }, [isAuthenticated, pin, autoRefreshInterval, loadDiagnostics]);
+
 
   const handlePinSubmit = (e) => {
     e.preventDefault();
