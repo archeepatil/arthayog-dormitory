@@ -145,6 +145,24 @@ export default function App() {
     loadData();
   }, [loadData]);
 
+  // Strict Role Route Guard:
+  // - Public/Guest: can only access 'guest-book' and 'guest-bookings'
+  // - Staff: can only access 'staff-board', 'beds', 'bookings', 'calendar', 'inventory'
+  // - Owner: has full access to 'dashboard', 'settings', 'audit', plus operational tabs
+  useEffect(() => {
+    const isOwner = user?.role === 'OWNER_ADMIN';
+    const isStaff = user?.role === 'STAFF_EMPLOYEE';
+
+    const ownerOnlyTabs = ['dashboard', 'settings', 'audit'];
+    const staffAndOwnerTabs = ['staff-board', 'beds', 'bookings', 'calendar', 'inventory'];
+
+    if (ownerOnlyTabs.includes(activeTab) && !isOwner) {
+      setActiveTab(isStaff ? 'staff-board' : 'guest-book');
+    } else if (staffAndOwnerTabs.includes(activeTab) && !isStaff && !isOwner) {
+      setActiveTab('guest-book');
+    }
+  }, [user, activeTab]);
+
   // Auth Handlers
   const handleAuthSuccess = (loggedUser) => {
     setCurrentUser(loggedUser);
@@ -300,8 +318,8 @@ export default function App() {
       />
 
       <main className="main-content-layout">
-        {/* 1. Owner Dashboard */}
-        {activeTab === 'dashboard' && (
+        {/* 1. Owner Dashboard (STRICT OWNER ONLY) */}
+        {activeTab === 'dashboard' && user?.role === 'OWNER_ADMIN' && (
           <DashboardOverview 
             stats={stats}
             analytics={analytics}
@@ -317,8 +335,8 @@ export default function App() {
           />
         )}
 
-        {/* 2. 16 Beds Blueprint Grid */}
-        {activeTab === 'beds' && (
+        {/* 2. 16 Beds Blueprint Grid (Staff & Owner only) */}
+        {activeTab === 'beds' && (user?.role === 'OWNER_ADMIN' || user?.role === 'STAFF_EMPLOYEE') && (
           <BedsGrid 
             beds={beds}
             loading={loading}
@@ -334,8 +352,8 @@ export default function App() {
           />
         )}
 
-        {/* 3. Bookings Table & Calendar View */}
-        {(activeTab === 'bookings' || activeTab === 'calendar') && (
+        {/* 3. Bookings Table & Calendar View (Staff & Owner only) */}
+        {(activeTab === 'bookings' || activeTab === 'calendar') && (user?.role === 'OWNER_ADMIN' || user?.role === 'STAFF_EMPLOYEE') && (
           <BookingsTable 
             bookings={bookings}
             loading={loading}
@@ -355,8 +373,8 @@ export default function App() {
           />
         )}
 
-        {/* 4. Staff Daily Board (Front Desk Duty Station Workspace) */}
-        {activeTab === 'staff-board' && (
+        {/* 4. Staff Daily Board (Front Desk Duty Station Workspace - Staff and Owner) */}
+        {activeTab === 'staff-board' && (user?.role === 'STAFF_EMPLOYEE' || user?.role === 'OWNER_ADMIN') && (
           <StaffDailyBoard 
             stats={stats}
             beds={beds}
@@ -373,8 +391,8 @@ export default function App() {
           />
         )}
 
-        {/* 5. Supplies Inventory */}
-        {activeTab === 'inventory' && (
+        {/* 5. Supplies Inventory (Staff & Owner only) */}
+        {activeTab === 'inventory' && (user?.role === 'STAFF_EMPLOYEE' || user?.role === 'OWNER_ADMIN') && (
           <InventoryView 
             inventory={inventory}
             transactions={transactions}
@@ -386,16 +404,16 @@ export default function App() {
           />
         )}
 
-        {/* 6. Owner Central Settings & Pricing */}
-        {activeTab === 'settings' && (
+        {/* 6. Owner Central Settings & Pricing (STRICT OWNER ONLY) */}
+        {activeTab === 'settings' && user?.role === 'OWNER_ADMIN' && (
           <OwnerSettingsView 
             onSettingsUpdated={loadData}
             onShowToast={showToast}
           />
         )}
 
-        {/* 7. Audit Logs (Owner only) */}
-        {activeTab === 'audit' && (
+        {/* 7. Audit Logs (STRICT OWNER ONLY) */}
+        {activeTab === 'audit' && user?.role === 'OWNER_ADMIN' && (
           <AuditLogsView 
             logs={logs}
             loading={loading}

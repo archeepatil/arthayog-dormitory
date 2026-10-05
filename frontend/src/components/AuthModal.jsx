@@ -136,52 +136,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
             </button>
           </form>
 
-          {mode === 'LOGIN' && (
-            <div className="quick-login-section">
-              <div className="auth-divider">
-                <span>{t('quick_demo_access', '1-Click Quick Demo Login')}</span>
-              </div>
-              <div className="quick-role-buttons">
-                <button
-                  type="button"
-                  className="quick-role-chip owner-chip"
-                  onClick={() => {
-                    setEmail('owner@arthayog.com');
-                    setPassword('AdminSecurePassword123!');
-                  }}
-                  title="Fill Owner / Admin credentials"
-                >
-                  👑 <strong>Owner</strong>
-                  <small>Full Dashboard</small>
-                </button>
-                <button
-                  type="button"
-                  className="quick-role-chip staff-chip"
-                  onClick={() => {
-                    setEmail('staff@arthayog.com');
-                    setPassword('StaffSecurePassword123!');
-                  }}
-                  title="Fill Staff / Front Desk credentials"
-                >
-                  🛎️ <strong>Staff</strong>
-                  <small>Daily Ops</small>
-                </button>
-                <button
-                  type="button"
-                  className="quick-role-chip guest-chip"
-                  onClick={() => {
-                    setEmail('guest@example.com');
-                    setPassword('GuestSecurePassword123!');
-                  }}
-                  title="Fill Guest credentials"
-                >
-                  🧳 <strong>Guest</strong>
-                  <small>My Bookings</small>
-                </button>
-              </div>
-            </div>
-          )}
-
           <div className="auth-toggle-footer">
             {mode === 'LOGIN' ? (
               <span>
@@ -250,59 +204,6 @@ export default function AuthModal({ isOpen, onClose, onAuthSuccess }) {
         }
 
 
-        .quick-login-section {
-          display: flex;
-          flex-direction: column;
-          gap: 10px;
-          margin-top: 4px;
-        }
-        .quick-role-buttons {
-          display: grid;
-          grid-template-columns: repeat(3, 1fr);
-          gap: 8px;
-        }
-        .quick-role-chip {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          padding: 8px 6px;
-          border-radius: var(--radius-sm);
-          border: 1px solid var(--border-subtle);
-          background: var(--bg-surface);
-          cursor: pointer;
-          transition: all 0.2s ease;
-          text-align: center;
-        }
-        .quick-role-chip strong {
-          font-size: 0.82rem;
-          color: var(--text-main);
-          margin-top: 2px;
-        }
-        .quick-role-chip small {
-          font-size: 0.68rem;
-          color: var(--text-muted);
-        }
-        .quick-role-chip:hover {
-          border-color: var(--primary);
-          background: var(--primary-light);
-          transform: translateY(-2px);
-        }
-        .auth-divider {
-          display: flex;
-          align-items: center;
-          text-align: center;
-          color: var(--text-dim);
-          font-size: 0.74rem;
-        }
-        .auth-divider::before, .auth-divider::after {
-          content: '';
-          flex: 1;
-          border-bottom: 1px solid var(--border-subtle);
-        }
-        .auth-divider span {
-          padding: 0 10px;
-        }
         .auth-form-fields {
           display: flex;
           flex-direction: column;
