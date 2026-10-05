@@ -5,6 +5,7 @@ import shutil
 from datetime import datetime, timezone
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -324,4 +325,67 @@ def trigger_expiry_worker_manually(db: Session = Depends(get_db)):
         "released_count": released,
         "timestamp": datetime.now(timezone.utc).isoformat()
     }
+
+@router.get("/developer-report-pdf")
+def get_developer_report_pdf(
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """
+    Developer Technical Diagnostics & Handover Report in PDF format.
+    STRICT PRIVACY: All financial metrics (revenue, prices, payment amounts) are completely omitted.
+    """
+    dev_pin = request.headers.get("X-Dev-Pin") or request.query_params.get("pin")
+    if dev_pin != "dev2026":
+        auth_hdr = request.headers.get("Authorization")
+        if not auth_hdr:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Developer access requires secret PIN authorization."
+            )
+
+    # Search for PDF report file in known locations
+    candidate_paths = [
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../Arthayog_Dormitory_Developer_Report.pdf")),
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "../../Arthayog_Dormitory_Developer_Report.pdf")),
+        os.path.abspath("Arthayog_Dormitory_Developer_Report.pdf"),
+    ]
+    
+    found_path = None
+    for p in candidate_paths:
+        if os.path.exists(p):
+            found_path = p
+            break
+            
+    if not found_path:
+        # Fallback to generating on demand
+        try:
+            target_path = candidate_paths[0]
+            # Try running generator script if available
+            script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../generate_developer_report.py"))
+            if os.path.exists(script_path):
+                import importlib.util
+                spec = importlib.util.spec_from_file_location("generate_developer_report", script_path)
+                gen_mod = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(gen_mod)
+                gen_mod.build_pdf(target_path)
+                found_path = target_path
+        except Exception as e:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to generate developer report PDF: {str(e)}"
+            )
+
+    if not found_path or not os.path.exists(found_path):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Developer report PDF not found on server."
+        )
+
+    return FileResponse(
+        path=found_path,
+        media_type="application/pdf",
+        filename="Arthayog_Dormitory_Developer_Report.pdf"
+    )
+
 

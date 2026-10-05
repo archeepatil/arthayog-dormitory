@@ -118,7 +118,20 @@ export default function DeveloperPortal({ onClose }) {
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadPdf = () => {
+    // Download the official developer report PDF
+    const pdfUrl = '/Arthayog_Dormitory_Developer_Report.pdf';
+    const a = document.createElement('a');
+    a.href = pdfUrl;
+    a.target = '_blank';
+    a.download = 'Arthayog_Dormitory_Developer_Report.pdf';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   // 1. PIN Lock Screen
+
   if (!isAuthenticated) {
     return (
       <div className="dev-gate-container animate-fade-in">
@@ -322,11 +335,22 @@ export default function DeveloperPortal({ onClose }) {
 
           <button 
             className="dev-btn dev-btn-primary"
-            onClick={handleDownloadReport}
+            onClick={handleDownloadPdf}
+            title="Download the official Developer Technical & Handover Report in PDF format"
           >
             <Download size={14} />
-            <span>Download Report (.json)</span>
+            <span>Developer Report (PDF)</span>
           </button>
+
+          <button 
+            className="dev-btn dev-btn-secondary"
+            onClick={handleDownloadReport}
+            title="Download raw technical telemetry JSON"
+          >
+            <FileCode2 size={14} />
+            <span>JSON Telemetry</span>
+          </button>
+
 
           {onClose && (
             <button className="dev-btn dev-btn-exit" onClick={onClose}>

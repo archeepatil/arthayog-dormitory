@@ -262,5 +262,7 @@ export const api = {
     }),
     developerPing: () => request('/system/developer-ping', { method: 'POST' }),
     triggerExpiry: () => request('/system/trigger-expiry', { method: 'POST' }),
+    developerReportPdfUrl: (pin) => `${API_BASE}/system/developer-report-pdf?pin=${encodeURIComponent(pin || '')}`,
   }
 };
+
