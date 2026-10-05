@@ -18,6 +18,7 @@ import GroupBookingModal from './components/GroupBookingModal';
 import GroupBookingDetailsModal from './components/GroupBookingDetailsModal';
 import AuthModal from './components/AuthModal';
 import ReceiptModal from './components/ReceiptModal';
+import DeveloperPortal from './components/DeveloperPortal';
 
 import { api, getUser, getToken, setUser, setToken } from './api';
 import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
@@ -145,11 +146,26 @@ export default function App() {
     loadData();
   }, [loadData]);
 
+  // Handle secret #developer route hash
+  useEffect(() => {
+    const checkHash = () => {
+      if (window.location.hash === '#developer') {
+        setActiveTab('developer');
+      }
+    };
+    checkHash();
+    window.addEventListener('hashchange', checkHash);
+    return () => window.removeEventListener('hashchange', checkHash);
+  }, []);
+
   // Strict Role Route Guard:
   // - Public/Guest: can only access 'guest-book' and 'guest-bookings'
   // - Staff: can only access 'staff-board', 'beds', 'bookings', 'calendar', 'inventory'
   // - Owner: has full access to 'dashboard', 'settings', 'audit', plus operational tabs
+  // - Developer Console: independent passcode-protected technical portal
   useEffect(() => {
+    if (activeTab === 'developer') return;
+
     const isOwner = user?.role === 'OWNER_ADMIN';
     const isStaff = user?.role === 'STAFF_EMPLOYEE';
 
@@ -446,7 +462,33 @@ export default function App() {
             onOpenReceipt={handleOpenReceipt}
           />
         )}
+
+        {/* 9. Developer Technical Diagnostics & Telemetry (Strict Zero Financials) */}
+        {activeTab === 'developer' && (
+          <DeveloperPortal 
+            onClose={() => {
+              window.location.hash = '';
+              setActiveTab(user?.role === 'OWNER_ADMIN' ? 'dashboard' : 'guest-book');
+            }}
+          />
+        )}
       </main>
+
+      {/* Subtle Developer Console Link in Footer */}
+      <footer className="dev-footer-strip">
+        <a 
+          href="#developer" 
+          onClick={(e) => {
+            e.preventDefault();
+            window.location.hash = '#developer';
+            setActiveTab('developer');
+          }}
+          className="dev-footer-link"
+          title="Developer Diagnostics & System Health"
+        >
+          ⚙️ Developer Console
+        </a>
+      </footer>
 
       {/* Global Modals */}
       <AuthModal 

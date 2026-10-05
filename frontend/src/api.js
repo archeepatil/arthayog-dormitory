@@ -252,10 +252,15 @@ export const api = {
     deletePhoneNumber: (id) => request(`/settings/phone-numbers/${id}`, { method: 'DELETE' }),
   },
 
-  // System Health & Backups (Owner only)
+  // System Health, Backups & Developer Diagnostics
   system: {
     health: () => request('/system/health'),
     backup: () => request('/system/backup', { method: 'POST' }),
     backups: () => request('/system/backups'),
+    developerDiagnostics: (pin) => request(`/system/developer-diagnostics?pin=${encodeURIComponent(pin || '')}`, {
+      headers: pin ? { 'X-Dev-Pin': pin } : {}
+    }),
+    developerPing: () => request('/system/developer-ping', { method: 'POST' }),
+    triggerExpiry: () => request('/system/trigger-expiry', { method: 'POST' }),
   }
 };
