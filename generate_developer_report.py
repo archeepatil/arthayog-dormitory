@@ -204,9 +204,10 @@ def build_pdf(output_path="Arthayog_Dormitory_Developer_Report.pdf"):
     header_table_data = [
         [
             Paragraph("<b>ARTHAYOG DORMITORY ERP</b><br/><font size=11 color='#0D9488'>Developer Technical Architecture & Handover Report</font>", title_style),
-            Paragraph("<font size=6.8 color='#64748B'>DOCUMENT ID: <b>ARTH-DEV-2026-v1.0</b><br/>DATE: <b>October 2026</b><br/>SYSTEM: <b>FastAPI + React PWA</b><br/>CLASSIFICATION: <b>Technical Handover</b></font>", body_style)
+            Paragraph("<font size=6.8 color='#64748B'>DOCUMENT ID: <b>ARTH-DEV-2026-v1.0</b><br/>AUTHOR: <b>Archee Patil (Lead Developer)</b><br/>DATE: <b>October 2026</b><br/>SYSTEM: <b>FastAPI + React PWA</b></font>", body_style)
         ]
     ]
+
     header_table = Table(header_table_data, colWidths=[330, 174])
     header_table.setStyle(TableStyle([
         ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
@@ -501,8 +502,9 @@ def build_pdf(output_path="Arthayog_Dormitory_Developer_Report.pdf"):
     # Sign-off box
     signoff_data = [
         [
-            Paragraph("<b>Prepared By:</b> Lead Systems Engineer / Antigravity AI", table_cell),
+            Paragraph("<b>Prepared By:</b> Archee Patil (Lead Developer)", table_cell),
             Paragraph("<b>Target Property:</b> Arthayog Dormitory, 16 Beds", table_cell)
+
         ],
         [
             Paragraph("<b>Verification Status:</b> <font color='#059669'><b>PASSED & PRODUCTION READY</b></font>", table_cell),
