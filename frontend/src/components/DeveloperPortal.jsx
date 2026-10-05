@@ -133,17 +133,53 @@ export default function DeveloperPortal({ onClose }) {
     URL.revokeObjectURL(url);
   };
 
-  const handleDownloadPdf = () => {
-    // Download the official developer report PDF
-    const pdfUrl = '/Arthayog_Dormitory_Developer_Report.pdf';
-    const a = document.createElement('a');
-    a.href = pdfUrl;
-    a.target = '_blank';
-    a.download = 'Arthayog_Dormitory_Developer_Report.pdf';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
+  const handleDownloadPdf = async () => {
+    setDownloadingPdf(true);
+    try {
+      // 1. Try to fetch dynamically from backend API endpoint
+      const pdfEndpoint = api.system.developerReportPdfUrl 
+        ? api.system.developerReportPdfUrl(pin) 
+        : `/api/system/developer-report-pdf?pin=${encodeURIComponent(pin || '')}`;
+      
+      const response = await fetch(pdfEndpoint);
+      if (response.ok) {
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Arthayog_Developer_Report_${diagnostics?.technical_report_id || 'live'}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        setDownloadingPdf(false);
+        return;
+      }
+    } catch (e) {
+      console.warn('API PDF fetch fallback, trying static bundle:', e);
+    }
+
+    // 2. Static PDF fallback
+    try {
+      const staticUrl = '/Arthayog_Dormitory_Developer_Report.pdf';
+      const a = document.createElement('a');
+      a.href = staticUrl;
+      a.download = 'Arthayog_Dormitory_Developer_Report.pdf';
+      a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    } catch (err) {
+      console.error('PDF download error:', err);
+      // Fallback: trigger print
+      window.print();
+    } finally {
+      setDownloadingPdf(false);
+    }
   };
+
 
   // 1. PIN Lock Screen
 
@@ -349,12 +385,13 @@ export default function DeveloperPortal({ onClose }) {
           </button>
 
           <button 
-            className="dev-btn dev-btn-primary"
+            className="dev-btn dev-btn-primary dev-btn-pdf"
             onClick={handleDownloadPdf}
+            disabled={downloadingPdf}
             title="Download the official Developer Technical & Handover Report in PDF format"
           >
-            <Download size={14} />
-            <span>Developer Report (PDF)</span>
+            <Download size={15} />
+            <span>{downloadingPdf ? 'Downloading PDF...' : '📄 Download Developer Report (PDF)'}</span>
           </button>
 
           <button 
@@ -366,7 +403,6 @@ export default function DeveloperPortal({ onClose }) {
             <span>JSON Telemetry</span>
           </button>
 
-
           {onClose && (
             <button className="dev-btn dev-btn-exit" onClick={onClose}>
               Exit Console
@@ -375,15 +411,22 @@ export default function DeveloperPortal({ onClose }) {
         </div>
       </div>
 
-      {/* Strict Privacy Notice */}
+      {/* Strict Privacy Notice with Quick PDF Export */}
       <div className="dev-privacy-banner">
         <div className="privacy-banner-left">
           <EyeOff size={16} color="#059669" />
           <strong>Strict Developer Privacy Enforcement:</strong>
           <span>Financial telemetry, revenue sums, room pricing, and payment values are excluded from this portal.</span>
         </div>
-        <span className="report-id-text">ID: {diagnostics?.technical_report_id}</span>
+        <div className="privacy-banner-right">
+          <button className="btn-banner-pdf" onClick={handleDownloadPdf} disabled={downloadingPdf}>
+            <Download size={13} />
+            <span>{downloadingPdf ? 'Generating...' : 'Export PDF'}</span>
+          </button>
+          <span className="report-id-text">ID: {diagnostics?.technical_report_id}</span>
+        </div>
       </div>
+
 
       {/* Grid of Telemetry Cards */}
       <div className="dev-metrics-grid">
@@ -576,6 +619,15 @@ export default function DeveloperPortal({ onClose }) {
         .dev-btn-primary:hover {
           background: #059669;
         }
+        .dev-btn-pdf {
+          background: linear-gradient(135deg, #2563EB, #1D4ED8) !important;
+          color: #FFFFFF !important;
+          border: 1px solid #3B82F6 !important;
+          box-shadow: 0 2px 6px rgba(37, 99, 235, 0.4);
+        }
+        .dev-btn-pdf:hover {
+          background: linear-gradient(135deg, #1D4ED8, #1E40AF) !important;
+        }
         .dev-btn-secondary {
           background: #1E293B;
           color: #F8FAFC;
@@ -584,6 +636,29 @@ export default function DeveloperPortal({ onClose }) {
         .dev-btn-secondary:hover {
           background: #334155;
         }
+        .privacy-banner-right {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .btn-banner-pdf {
+          display: inline-flex;
+          align-items: center;
+          gap: 5px;
+          background: #059669;
+          color: #FFFFFF;
+          border: 1px solid #10B981;
+          padding: 4px 10px;
+          border-radius: 4px;
+          font-size: 0.78rem;
+          font-weight: 700;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .btn-banner-pdf:hover {
+          background: #047857;
+        }
+
         .dev-btn-exit {
           background: transparent;
           color: #94A3B8;
