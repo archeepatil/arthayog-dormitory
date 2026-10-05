@@ -1,16 +1,25 @@
 const getApiBase = () => {
-  let url = import.meta.env.VITE_API_URL;
-  if (!url) {
-    if (typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-      return 'https://arthayog-backend.onrender.com/api';
-    }
+  // 1. If running locally on localhost/127.0.0.1, use local Vite dev server proxy
+  if (typeof window !== 'undefined' && ['localhost', '127.0.0.1'].includes(window.location.hostname)) {
     return '/api';
   }
-  url = url.trim().replace(/\/$/, '');
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = `https://${url}`;
+
+  // 2. Read environment variable if supplied
+  let url = import.meta.env.VITE_API_URL;
+  if (url && typeof url === 'string') {
+    url = url.trim().replace(/\/$/, '');
+    // If Render Blueprint gave internal service name like "arthayog-backend" without TLD
+    if (!url.includes('.')) {
+      url = `${url}.onrender.com`;
+    }
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = `https://${url}`;
+    }
+    return `${url}/api`;
   }
-  return `${url}/api`;
+
+  // 3. Robust default public backend URL
+  return 'https://arthayog-backend.onrender.com/api';
 };
 
 const API_BASE = getApiBase();

@@ -43,10 +43,7 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        fromService:
-          type: web
-          name: arthayog-backend
-          property: host
+        value: https://arthayog-backend.onrender.com
     routes:
       - type: rewrite
         source: /*
