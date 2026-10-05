@@ -1,6 +1,11 @@
 const getApiBase = () => {
   let url = import.meta.env.VITE_API_URL;
-  if (!url) return '/api';
+  if (!url) {
+    if (typeof window !== 'undefined' && !['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      return 'https://arthayog-backend.onrender.com/api';
+    }
+    return '/api';
+  }
   url = url.trim().replace(/\/$/, '');
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     url = `https://${url}`;
