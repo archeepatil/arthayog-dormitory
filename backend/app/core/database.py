@@ -31,3 +31,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+def migrate_db():
+    """
+    Ensures newly added columns in SQLite/Postgres tables exist without needing alembic.
+    """
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        # Check bookings table columns
+        try:
+            info = conn.execute(text("PRAGMA table_info(bookings)")).fetchall()
+            existing_cols = [row[1] for row in info]
+            if "rejection_reason" not in existing_cols:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN rejection_reason TEXT"))
+            if "approved_by_id" not in existing_cols:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN approved_by_id INTEGER"))
+            if "approved_at" not in existing_cols:
+                conn.execute(text("ALTER TABLE bookings ADD COLUMN approved_at TIMESTAMP"))
+            conn.commit()
+        except Exception as e:
+            # Not sqlite or table not created yet
+            pass
+

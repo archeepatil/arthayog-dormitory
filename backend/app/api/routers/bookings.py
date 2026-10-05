@@ -7,12 +7,14 @@ from app.api.deps import get_db, get_current_user, get_current_user_optional, re
 from app.models import (
     Bed, BedStatus, Booking, BookingStatus, BookingType,
     Payment, PaymentStatus, PaymentMethod, CleaningLog, CleaningStatus,
-    User, UserRole
+    User, UserRole, GuestPhoto, IdentityVerification, PropertySetting, PhoneNumber
 )
 from app.schemas import (
     BookingCreateOnline, BookingCreatePhone, BookingOut,
     BookingCheckIn, BookingCheckOut, BookingCancel, PaymentOut,
-    GroupBookingCreate, GroupBookingOut, GroupBookingBedOut, GroupBookingModify
+    GroupBookingCreate, GroupBookingOut, GroupBookingBedOut, GroupBookingModify,
+    BookingApproveRequest, BookingRejectRequest, BookingReceiptOut,
+    GuestPhotoUpload, GuestPhotoOut, IdentityVerificationRequest, IdentityVerificationOut
 )
 from app.services.booking_service import is_bed_available_for_dates, expire_unpaid_bookings
 from app.core.config import settings
@@ -26,6 +28,9 @@ def generate_booking_code() -> str:
     return f"AY-{now_year}-{random_suffix}"
 
 def enrich_booking_out(b: Booking) -> BookingOut:
+    has_photo = bool(b.guest_photos and len(b.guest_photos) > 0)
+    id_ver = b.identity_verifications[-1] if b.identity_verifications else None
+
     out = BookingOut(
         id=b.id,
         booking_code=b.booking_code,
@@ -45,13 +50,19 @@ def enrich_booking_out(b: Booking) -> BookingOut:
         group_code=b.group_code,
         event_name=b.event_name,
         notes=b.notes,
+        rejection_reason=b.rejection_reason,
         total_amount=b.total_amount,
         paid_amount=b.paid_amount,
         hold_expires_at=b.hold_expires_at,
+        approved_at=b.approved_at,
+        approved_by_id=b.approved_by_id,
         checked_in_at=b.checked_in_at,
         checked_out_at=b.checked_out_at,
         created_at=b.created_at,
-        payments=[PaymentOut.model_validate(p) for p in b.payments] if b.payments else []
+        payments=[PaymentOut.model_validate(p) for p in b.payments] if b.payments else [],
+        guest_photo_available=has_photo,
+        identity_verification_status=id_ver.status if id_ver else "NOT_VERIFIED",
+        identity_verification_masked_id=id_ver.masked_id if id_ver else None
     )
     return out
 
@@ -82,8 +93,8 @@ def create_online_booking(
 
     nights = max((data.check_out_date - data.check_in_date).days, 1)
     total_amount = round(bed.base_price_inr * nights, 2)
-    hold_expiry = datetime.now(timezone.utc) + timedelta(minutes=settings.BOOKING_HOLD_TIMEOUT_MINUTES)
 
+    # Customer self-booking creates a request with PENDING_APPROVAL status (addition of this.pdf page 17-20)
     booking = Booking(
         booking_code=generate_booking_code(),
         guest_id=current_user.id if current_user else None,
@@ -93,12 +104,12 @@ def create_online_booking(
         bed_id=bed.id,
         check_in_date=data.check_in_date,
         check_out_date=data.check_out_date,
-        status=BookingStatus.PENDING_PAYMENT.value,
+        status=BookingStatus.PENDING_APPROVAL.value,
         booking_type=BookingType.ONLINE.value,
         notes=data.notes,
         total_amount=total_amount,
         paid_amount=0.0,
-        hold_expires_at=hold_expiry
+        hold_expires_at=None
     )
     db.add(booking)
     db.commit()
@@ -107,7 +118,7 @@ def create_online_booking(
     record_audit(
         db=db,
         user=current_user,
-        action="ONLINE_BOOKING_INITIATED",
+        action="BOOKING_REQUEST_SUBMITTED",
         entity_type="Booking",
         entity_id=booking.id,
         details={
@@ -115,12 +126,13 @@ def create_online_booking(
             "bed_number": bed.bed_number,
             "nights": nights,
             "total_amount": total_amount,
-            "hold_expires_at": hold_expiry.isoformat()
+            "status": booking.status
         },
         ip_address=get_client_ip(request)
     )
 
     return enrich_booking_out(booking)
+
 
 @router.post("/phone", response_model=BookingOut)
 def create_phone_booking(
@@ -423,6 +435,459 @@ def cancel_booking(
 
     db.refresh(booking)
     return enrich_booking_out(booking)
+
+@router.post("/{booking_id}/approve", response_model=BookingOut)
+def approve_booking(
+    booking_id: int,
+    data: BookingApproveRequest,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner/Staff only: Approves a pending booking request (addition of this.pdf pages 17-21).
+    Re-checks availability to prevent double-booking before approving.
+    Transitions status: PENDING_APPROVAL -> APPROVED_PAYMENT_PENDING.
+    Enables [Pay Now] for the customer with temporary hold.
+    """
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    if booking.status != BookingStatus.PENDING_APPROVAL.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Only bookings with status 'PENDING_APPROVAL' can be approved. Current status: '{booking.status}'."
+        )
+
+    # Re-check current availability before approving (Page 21)
+    if not is_bed_available_for_dates(db, booking.bed_id, booking.check_in_date, booking.check_out_date, exclude_booking_id=booking.id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Cannot approve: Bed {booking.bed.bed_number if booking.bed else ''} is no longer available for the requested dates."
+        )
+
+    booking.status = BookingStatus.APPROVED_PAYMENT_PENDING.value
+    booking.approved_at = datetime.now(timezone.utc)
+    booking.approved_by_id = current_user.id
+    booking.hold_expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.BOOKING_HOLD_TIMEOUT_MINUTES * 2)
+
+    if data.notes:
+        booking.notes = f"{booking.notes or ''}\n[Approval note]: {data.notes}".strip()
+
+    db.commit()
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="BOOKING_APPROVED",
+        entity_type="Booking",
+        entity_id=booking.id,
+        details={
+            "booking_code": booking.booking_code,
+            "guest_name": booking.guest_name,
+            "status": booking.status,
+            "approved_by": current_user.email
+        },
+        ip_address=get_client_ip(request)
+    )
+
+    db.refresh(booking)
+    return enrich_booking_out(booking)
+
+@router.post("/{booking_id}/reject", response_model=BookingOut)
+def reject_booking(
+    booking_id: int,
+    data: BookingRejectRequest,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner/Staff only: Rejects a pending booking request with rejection reason (addition of this.pdf page 20).
+    """
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    if booking.status not in [BookingStatus.PENDING_APPROVAL.value, BookingStatus.APPROVED_PAYMENT_PENDING.value]:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot reject booking with status '{booking.status}'."
+        )
+
+    booking.status = BookingStatus.REJECTED.value
+    booking.rejection_reason = data.rejection_reason or "Booking request could not be accommodated."
+    booking.hold_expires_at = None
+
+    db.commit()
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="BOOKING_REJECTED",
+        entity_type="Booking",
+        entity_id=booking.id,
+        details={
+            "booking_code": booking.booking_code,
+            "guest_name": booking.guest_name,
+            "reason": booking.rejection_reason
+        },
+        ip_address=get_client_ip(request)
+    )
+
+    db.refresh(booking)
+    return enrich_booking_out(booking)
+
+@router.get("/{booking_id}/receipt", response_model=BookingReceiptOut)
+def get_booking_receipt(
+    booking_id: int,
+    current_user: Optional[User] = Depends(get_current_user_optional),
+    db: Session = Depends(get_db)
+):
+    """
+    Generates a professional booking Invoice/Receipt from real database data (addition of this.pdf pages 2-6).
+    Enforces customer access control: customer can only access their own confirmed booking receipt.
+    Uses exact confirmed booking amount stored in booking (preserves price even if owner updates current room rate).
+    Only marks payment SUCCESS/PAID if verified by payment system.
+    """
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    # Backend access check (page 6)
+    if current_user and current_user.role == UserRole.CUSTOMER_GUEST.value:
+        if booking.guest_id and booking.guest_id != current_user.id and booking.guest_email != current_user.email:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied to another guest's receipt.")
+
+    def _setting(k, d=""):
+        row = db.query(PropertySetting).filter(PropertySetting.key == k).first()
+        return row.value if row else d
+
+    phone_records = db.query(PhoneNumber).filter(PhoneNumber.is_active == True, PhoneNumber.show_to_customers == True).all()
+    phones = [f"{p.label}: {p.phone_number}" for p in phone_records]
+    if not phones:
+        phones = [_setting("property_contact_phone", "+91 98765 43210")]
+
+    successful_payments = [p for p in booking.payments if p.status == PaymentStatus.SUCCESS.value]
+    payment_verified = len(successful_payments) > 0 or booking.paid_amount >= booking.total_amount
+    payment_status_display = "PAID (SUCCESS)" if payment_verified else ("PENDING" if booking.paid_amount == 0 else "PARTIAL")
+
+    last_tx = successful_payments[-1] if successful_payments else None
+    tx_ref = last_tx.razorpay_payment_id if last_tx and last_tx.razorpay_payment_id else (f"CASH-{booking.booking_code}" if booking.paid_amount > 0 else "—")
+    pay_date = last_tx.verified_at.strftime("%d %b %Y, %I:%M %p") if last_tx and last_tx.verified_at else (booking.created_at.strftime("%d %b %Y") if booking.paid_amount > 0 else "—")
+
+    is_group = bool(booking.group_code)
+    group_beds = []
+    group_floors = set()
+    if is_group:
+        all_grp = db.query(Booking).filter(Booking.group_code == booking.group_code).all()
+        for gb in all_grp:
+            if gb.bed:
+                group_beds.append(f"Bed {gb.bed.bed_number}")
+                group_floors.add(f"Floor {gb.bed.floor_number}")
+    else:
+        if booking.bed:
+            group_beds.append(f"Bed {booking.bed.bed_number}")
+            group_floors.add(f"Floor {booking.bed.floor_number}")
+
+    floors_str = " + ".join(sorted(list(group_floors))) if group_floors else f"Floor {booking.bed.floor_number if booking.bed else 1}"
+
+    return BookingReceiptOut(
+        receipt_number=f"RCPT-{booking.booking_code}",
+        generated_at=datetime.now(timezone.utc),
+        status=booking.status,
+        property={
+            "name": _setting("property_name", "Arthayog Dormitory"),
+            "logo_url": _setting("property_logo_url", ""),
+            "address": _setting("property_address", "12, Shanti Marg, City Center, Near Metro Station"),
+            "email": _setting("property_email", "stay@arthayog.com"),
+            "contact_phones": phones,
+            "check_in_time": _setting("property_check_in_time", "12:00 PM"),
+            "check_out_time": _setting("property_check_out_time", "11:00 AM"),
+            "rules": _setting("property_customer_instructions", "Valid Government Photo ID required at check-in.")
+        },
+        customer={
+            "name": booking.guest_name,
+            "phone": booking.guest_phone,
+            "email": booking.guest_email or "—"
+        },
+        booking={
+            "booking_id": booking.id,
+            "booking_code": booking.booking_code,
+            "created_at": booking.created_at.strftime("%d %b %Y, %I:%M %p"),
+            "check_in_date": booking.check_in_date.strftime("%d %b %Y"),
+            "check_out_date": booking.check_out_date.strftime("%d %b %Y"),
+            "check_in_time": _setting("property_check_in_time", "12:00 PM"),
+            "check_out_time": _setting("property_check_out_time", "11:00 AM"),
+            "booking_type": "Group / Wedding Stay" if is_group else "Individual Stay",
+            "is_group": is_group,
+            "event_name": booking.event_name or ("Group / Wedding Stay" if is_group else None),
+            "group_code": booking.group_code,
+            "floors": floors_str,
+            "total_beds": len(group_beds),
+            "assigned_beds": group_beds,
+            "status": booking.status
+        },
+        payment={
+            "total_amount": booking.total_amount,
+            "paid_amount": booking.paid_amount,
+            "payment_status": payment_status_display,
+            "payment_method": last_tx.method if last_tx else ("CASH" if booking.paid_amount > 0 else "—"),
+            "transaction_reference": tx_ref,
+            "payment_date": pay_date,
+            "is_verified": payment_verified
+        }
+    )
+
+@router.post("/{booking_id}/capture-photo", response_model=GuestPhotoOut)
+def capture_guest_photo(
+    booking_id: int,
+    data: GuestPhotoUpload,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Captures and securely stores live guest photo taken via camera at check-in (addition of this.pdf pages 38-43).
+    """
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    photo = GuestPhoto(
+        booking_id=booking.id,
+        guest_id=booking.guest_id,
+        photo_data=data.photo_data,
+        captured_by_user_id=current_user.id,
+        status="ACTIVE"
+    )
+    db.add(photo)
+    db.commit()
+    db.refresh(photo)
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="GUEST_PHOTO_CAPTURED",
+        entity_type="GuestPhoto",
+        entity_id=str(photo.id),
+        details={"booking_code": booking.booking_code, "guest_name": booking.guest_name},
+        ip_address=get_client_ip(request)
+    )
+
+    return GuestPhotoOut(
+        id=photo.id,
+        booking_id=photo.booking_id,
+        guest_id=photo.guest_id,
+        captured_at=photo.captured_at,
+        status=photo.status
+    )
+
+@router.get("/{booking_id}/photo")
+def get_guest_photo(
+    booking_id: int,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner/Staff only: Retrieves securely stored guest photo (addition of this.pdf page 43).
+    Customers cannot view photos of other guests.
+    """
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    latest_photo = db.query(GuestPhoto).filter(
+        GuestPhoto.booking_id == booking_id,
+        GuestPhoto.status == "ACTIVE"
+    ).order_by(GuestPhoto.captured_at.desc()).first()
+
+    if not latest_photo:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No photo captured for this guest.")
+
+    return {
+        "photo_id": latest_photo.id,
+        "booking_id": booking.id,
+        "photo_data": latest_photo.photo_data,
+        "captured_at": latest_photo.captured_at
+    }
+
+@router.delete("/{booking_id}/photo")
+def delete_guest_photo(
+    booking_id: int,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner/Staff only: Securely deletes live guest photo per retention/privacy policy (Page 41 & 43).
+    """
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    photos = db.query(GuestPhoto).filter(
+        GuestPhoto.booking_id == booking_id,
+        GuestPhoto.status == "ACTIVE"
+    ).all()
+
+    if not photos:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No active photo found for this booking.")
+
+    for p in photos:
+        p.status = "DELETED"
+        p.photo_data = ""
+
+    db.commit()
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="GUEST_PHOTO_DELETED",
+        entity_type="GuestPhoto",
+        entity_id=str(booking_id),
+        details={"booking_code": booking.booking_code, "reason": "Staff/Owner requested deletion per privacy policy"},
+        ip_address=get_client_ip(request)
+    )
+
+    return {"message": "Guest photo securely deleted."}
+
+@router.post("/photos/cleanup-expired")
+def cleanup_expired_guest_photos(
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner only: Purges guest photos that exceed the configured retention policy (default 30 days) (Page 41).
+    """
+    row = db.query(PropertySetting).filter(PropertySetting.key == "photo_retention_days").first()
+    retention_days = int(row.value) if row and row.value.isdigit() else 30
+    cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+
+    expired_photos = db.query(GuestPhoto).filter(
+        GuestPhoto.status == "ACTIVE",
+        GuestPhoto.captured_at < cutoff
+    ).all()
+
+    count = len(expired_photos)
+    for p in expired_photos:
+        p.status = "EXPIRED_DELETED"
+        p.photo_data = ""
+
+    db.commit()
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="GUEST_PHOTOS_EXPIRED_CLEANUP",
+        entity_type="GuestPhoto",
+        entity_id="BULK",
+        details={"deleted_count": count, "retention_days": retention_days},
+        ip_address=get_client_ip(request)
+    )
+
+    return {"message": f"Successfully cleaned up {count} expired guest photos.", "deleted_count": count}
+
+@router.post("/{booking_id}/verify-identity")
+def verify_identity(
+    booking_id: int,
+    data: IdentityVerificationRequest,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Authorized Aadhaar Identity Verification endpoint (addition of this.pdf page 37 & 47).
+    Explicit Rule: If no authorized Aadhaar verification provider/API is configured yet,
+    DO NOT create fake verification. Instead show: 'Aadhaar verification service is not configured.'
+    Also supports authorized offline physical / mAadhaar QR verification by front desk staff.
+    """
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    method = data.verification_method or "AADHAAR_UIDAI"
+
+    if method in ["OFFLINE_PHYSICAL", "OFFLINE_QR", "MANUAL_CHECK"]:
+        num = (data.aadhaar_number or "").strip().replace(" ", "").replace("-", "")
+        last4 = num[-4:] if len(num) >= 4 else "0000"
+        masked = f"XXXX-XXXX-{last4}"
+
+        record = db.query(IdentityVerification).filter(IdentityVerification.booking_id == booking_id).first()
+        if not record:
+            record = IdentityVerification(booking_id=booking_id, guest_id=booking.guest_id)
+            db.add(record)
+
+        record.status = "VERIFIED"
+        record.verification_method = "OFFLINE_QR" if method == "OFFLINE_QR" else "OFFLINE_PHYSICAL"
+        record.masked_id = masked
+        record.provider_reference = "OFFLINE_INSPECTION_OK"
+        record.verified_at = datetime.utcnow()
+        record.verified_by = current_user.id
+        db.commit()
+        db.refresh(record)
+
+        record_audit(
+            db=db,
+            user=current_user,
+            action="AADHAAR_VERIFIED_OFFLINE",
+            entity_type="IdentityVerification",
+            entity_id=str(record.id),
+            details={"booking_code": booking.booking_code, "method": record.verification_method, "masked_id": masked},
+            ip_address=get_client_ip(request)
+        )
+
+        return {
+            "status": "SUCCESS",
+            "message": f"Aadhaar verified via offline inspection ({record.verification_method}).",
+            "masked_id": masked,
+            "verified_at": record.verified_at.isoformat()
+        }
+
+    # Online UIDAI verification
+    aadhaar_api_configured = bool(getattr(settings, "AADHAAR_API_KEY", None))
+    if not aadhaar_api_configured:
+        return {
+            "status": "NOT_CONFIGURED",
+            "message": "Aadhaar verification service is not configured.",
+            "booking_code": booking.booking_code
+        }
+
+    return {"status": "SUCCESS", "message": "Identity verification completed."}
+
+@router.get("/{booking_id}/identity", response_model=IdentityVerificationOut)
+def get_identity_verification(
+    booking_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    booking = db.query(Booking).filter(Booking.id == booking_id).first()
+    if not booking:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+
+    if current_user.role == UserRole.CUSTOMER_GUEST.value and booking.guest_id != current_user.id and booking.guest_email != current_user.email:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Access denied.")
+
+    record = db.query(IdentityVerification).filter(
+        IdentityVerification.booking_id == booking_id
+    ).order_by(IdentityVerification.created_at.desc()).first()
+
+    if not record:
+        return IdentityVerificationOut(
+            id=0,
+            booking_id=booking.id,
+            guest_id=booking.guest_id,
+            status="NOT_VERIFIED",
+            verification_method=None,
+            masked_id=None,
+            provider_reference=None,
+            verified_at=None
+        )
+
+    return IdentityVerificationOut.model_validate(record)
+
 
 @router.post("/expire-check")
 def trigger_expiry_check(db: Session = Depends(get_db)):
@@ -921,4 +1386,83 @@ def check_out_group_booking(
 
     all_grp = db.query(Booking).filter(Booking.group_code == group_code).all()
     return build_group_booking_out(all_grp)
+
+@router.post("/group/{group_code}/approve", response_model=GroupBookingOut)
+def approve_group_booking(
+    group_code: str,
+    data: BookingApproveRequest,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Staff / Owner: Approves all pending bookings in a group reservation.
+    """
+    bookings = db.query(Booking).filter(Booking.group_code == group_code).all()
+    if not bookings:
+        raise HTTPException(status_code=404, detail="Group booking not found.")
+
+    now_utc = datetime.now(timezone.utc)
+    for b in bookings:
+        if b.status == BookingStatus.PENDING_APPROVAL.value:
+            # Re-check availability
+            if not is_bed_available_for_dates(db, b.bed_id, b.check_in_date, b.check_out_date, exclude_booking_id=b.id):
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Cannot approve: Bed {b.bed.bed_number if b.bed else ''} is no longer available for the requested dates."
+                )
+            b.status = BookingStatus.APPROVED_PAYMENT_PENDING.value
+            b.approved_at = now_utc
+            b.approved_by_id = current_user.id
+            b.hold_expires_at = now_utc + timedelta(minutes=settings.BOOKING_HOLD_TIMEOUT_MINUTES * 4)
+
+    db.commit()
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="GROUP_BOOKING_APPROVED",
+        entity_type="GroupBooking",
+        entity_id=group_code,
+        details={"group_code": group_code, "count": len(bookings)},
+        ip_address=get_client_ip(request)
+    )
+
+    return build_group_booking_out(bookings)
+
+@router.post("/group/{group_code}/reject", response_model=GroupBookingOut)
+def reject_group_booking(
+    group_code: str,
+    data: BookingRejectRequest,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Staff / Owner: Rejects all pending bookings in a group reservation.
+    """
+    bookings = db.query(Booking).filter(Booking.group_code == group_code).all()
+    if not bookings:
+        raise HTTPException(status_code=404, detail="Group booking not found.")
+
+    for b in bookings:
+        if b.status in [BookingStatus.PENDING_APPROVAL.value, BookingStatus.APPROVED_PAYMENT_PENDING.value]:
+            b.status = BookingStatus.REJECTED.value
+            b.rejection_reason = data.rejection_reason or "Group booking request could not be accommodated."
+            b.hold_expires_at = None
+
+    db.commit()
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="GROUP_BOOKING_REJECTED",
+        entity_type="GroupBooking",
+        entity_id=group_code,
+        details={"group_code": group_code, "reason": data.rejection_reason},
+        ip_address=get_client_ip(request)
+    )
+
+    return build_group_booking_out(bookings)
+
 

@@ -17,6 +17,7 @@ import BookingDetailsModal from './components/BookingDetailsModal';
 import GroupBookingModal from './components/GroupBookingModal';
 import GroupBookingDetailsModal from './components/GroupBookingDetailsModal';
 import AuthModal from './components/AuthModal';
+import ReceiptModal from './components/ReceiptModal';
 
 import { api, getUser, getToken, setUser, setToken } from './api';
 import { CheckCircle2, AlertCircle, Info } from 'lucide-react';
@@ -60,7 +61,14 @@ export default function App() {
   const [checkOutModalOpen, setCheckOutModalOpen] = useState(false);
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [detailsModalOpen, setDetailsModalOpen] = useState(false);
+  const [receiptModalOpen, setReceiptModalOpen] = useState(false);
+  const [receiptBooking, setReceiptBooking] = useState(null);
   const [selectedBooking, setSelectedBooking] = useState(null);
+
+  const handleOpenReceipt = (booking) => {
+    setReceiptBooking(booking);
+    setReceiptModalOpen(true);
+  };
 
   // Toast System
   const [toast, setToast] = useState(null);
@@ -179,10 +187,9 @@ export default function App() {
   const handleOnlineBooking = async (bookingData) => {
     try {
       const res = await api.bookings.createOnline(bookingData);
-      showToast(`Reservation ${res.booking_code} created! Opening secure payment...`, 'success');
-      setSelectedBooking(res);
-      setPaymentModalOpen(true);
+      showToast(`Booking request submitted! Your reservation #${res.booking_code} is awaiting front desk approval. Payment will be enabled once approved.`, 'info');
       loadData();
+      return res;
     } catch (err) {
       showToast(err.message, 'error');
       throw err;
@@ -327,12 +334,14 @@ export default function App() {
           />
         )}
 
-        {/* 3. Bookings Table */}
-        {activeTab === 'bookings' && (
+        {/* 3. Bookings Table & Calendar View */}
+        {(activeTab === 'bookings' || activeTab === 'calendar') && (
           <BookingsTable 
             bookings={bookings}
             loading={loading}
             user={user}
+            beds={beds}
+            initialView={activeTab === 'calendar' ? 'CALENDAR' : 'TABLE'}
             onCheckIn={(b) => { setSelectedBooking(b); setCheckInModalOpen(true); }}
             onCheckOut={(b) => { setSelectedBooking(b); setCheckOutModalOpen(true); }}
             onCancel={handleCancelBooking}
@@ -341,22 +350,26 @@ export default function App() {
             onOpenPhoneBooking={() => setPhoneBookingModalOpen(true)}
             onOpenGroupBooking={handleOpenGroupBooking}
             onOpenGroupDetails={handleOpenGroupDetails}
+            onOpenReceipt={handleOpenReceipt}
             onRefresh={loadData}
           />
         )}
 
-        {/* 4. Staff Daily Board */}
+        {/* 4. Staff Daily Board (Front Desk Duty Station Workspace) */}
         {activeTab === 'staff-board' && (
           <StaffDailyBoard 
             stats={stats}
             beds={beds}
+            bookings={bookings}
             todayBookings={bookings}
             onOpenPhoneBooking={() => setPhoneBookingModalOpen(true)}
             onOpenGroupBooking={handleOpenGroupBooking}
             onOpenGroupDetails={handleOpenGroupDetails}
             onCheckIn={(b) => { setSelectedBooking(b); setCheckInModalOpen(true); }}
             onCheckOut={(b) => { setSelectedBooking(b); setCheckOutModalOpen(true); }}
+            onSelectBooking={(b) => { setSelectedBooking(b); setDetailsModalOpen(true); }}
             setActiveTab={setActiveTab}
+            onRefresh={loadData}
           />
         )}
 
@@ -409,6 +422,7 @@ export default function App() {
             onOpenAuth={() => setAuthModalOpen(true)}
             onPayBooking={(b) => { setSelectedBooking(b); setPaymentModalOpen(true); }}
             onSelectBooking={(b) => { setSelectedBooking(b); setDetailsModalOpen(true); }}
+            onOpenReceipt={handleOpenReceipt}
           />
         )}
       </main>
@@ -453,6 +467,13 @@ export default function App() {
         isOpen={detailsModalOpen}
         onClose={() => { setDetailsModalOpen(false); setSelectedBooking(null); }}
         booking={selectedBooking}
+        onOpenReceipt={handleOpenReceipt}
+      />
+
+      <ReceiptModal 
+        isOpen={receiptModalOpen}
+        onClose={() => { setReceiptModalOpen(false); setReceiptBooking(null); }}
+        bookingId={receiptBooking?.id}
       />
 
       <GroupBookingModal 

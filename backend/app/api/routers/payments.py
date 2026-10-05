@@ -1,9 +1,10 @@
 import uuid
+from typing import Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from app.api.deps import get_db, get_current_user, require_role, get_client_ip
-from app.models import Booking, BookingStatus, Payment, PaymentStatus, PaymentMethod, User, UserRole
+from app.api.deps import get_db, get_current_user_optional, require_role, get_client_ip
+from app.models import Booking, BookingStatus, Bed, BedStatus, Payment, PaymentStatus, PaymentMethod, User, UserRole
 from app.schemas import (
     PaymentOrderCreate, PaymentOrderOut, PaymentVerifyRequest,
     PaymentOut, CashPaymentRecord
@@ -18,17 +19,34 @@ router = APIRouter(prefix="/payments", tags=["Payments"])
 def create_payment_order(
     data: PaymentOrderCreate,
     request: Request,
+    current_user: Optional[User] = Depends(get_current_user_optional),
     db: Session = Depends(get_db)
 ):
     booking = db.query(Booking).filter(Booking.id == data.booking_id).first()
     if not booking:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
 
-    if booking.status in [BookingStatus.CANCELLED.value, BookingStatus.EXPIRED.value]:
+    # Critical Security (addition of this.pdf page 20-21):
+    # Reject payment if booking is still awaiting approval or rejected
+    if booking.status == BookingStatus.PENDING_APPROVAL.value:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Payment is not available until booking request has been approved by Owner or Staff."
+        )
+
+    if booking.status in [BookingStatus.CANCELLED.value, BookingStatus.EXPIRED.value, BookingStatus.REJECTED.value]:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Cannot pay for booking with status '{booking.status}'."
         )
+
+    # Customer can only pay for their own booking
+    if current_user and current_user.role == UserRole.CUSTOMER_GUEST.value:
+        if booking.guest_id and booking.guest_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You can only initiate payment for your own booking."
+            )
 
     remaining_amount = round(booking.total_amount - booking.paid_amount, 2)
     if remaining_amount <= 0:
@@ -36,6 +54,7 @@ def create_payment_order(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Booking is already fully paid."
         )
+
 
     receipt = f"rcpt_{booking.booking_code}_{uuid.uuid4().hex[:4]}"
     order_data = razorpay_service.create_order(

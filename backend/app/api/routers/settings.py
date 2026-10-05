@@ -5,7 +5,8 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from app.api.deps import get_db, require_role, get_client_ip
-from app.models import PropertySetting, Bed, User, UserRole
+from app.models import PropertySetting, Bed, User, UserRole, PhoneNumber
+from app.schemas import PhoneNumberCreate, PhoneNumberUpdate, PhoneNumberOut
 from app.core.audit import record_audit
 from app.core.security import hash_password
 
@@ -21,7 +22,6 @@ class PropertySettingsOut(BaseModel):
     logo_url: str
     description: str
     contact_phone: str
-    whatsapp_number: str
     email: str
     address: str
     location_details: str
@@ -39,7 +39,6 @@ class PropertySettingsUpdate(BaseModel):
     logo_url: Optional[str] = None
     description: Optional[str] = None
     contact_phone: Optional[str] = None
-    whatsapp_number: Optional[str] = None
     email: Optional[str] = None
     address: Optional[str] = None
     location_details: Optional[str] = None
@@ -151,7 +150,6 @@ def get_property_info(db: Session = Depends(get_db)):
             "A clean, quiet, and thoughtfully planned 16-bed boutique dormitory offering comfortable living right in the city center."
         ),
         contact_phone=get_setting(db, "property_contact_phone", "+91 98765 43210"),
-        whatsapp_number=get_setting(db, "property_whatsapp_number", "+91 98765 43210"),
         email=get_setting(db, "property_email", "stay@arthayog.com"),
         address=get_setting(db, "property_address", "12, Shanti Marg, City Center, Near Metro Station"),
         location_details=get_setting(
@@ -197,8 +195,6 @@ def update_property_info(
         set_setting(db, "property_description", data.description.strip(), "Property Description")
     if data.contact_phone is not None:
         set_setting(db, "property_contact_phone", data.contact_phone.strip(), "Contact Phone")
-    if data.whatsapp_number is not None:
-        set_setting(db, "property_whatsapp_number", data.whatsapp_number.strip(), "WhatsApp Number")
     if data.email is not None:
         set_setting(db, "property_email", data.email.strip(), "Property Email")
     if data.address is not None:
@@ -576,4 +572,152 @@ def disable_payment_qr_settings(
     )
 
     return get_payment_qr_settings(db)
+
+# ----------------- Owner-Configurable Phone Numbers (Call Only) -----------------
+
+@router.get("/phone-numbers", response_model=List[PhoneNumberOut])
+def list_phone_numbers(
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value, UserRole.STAFF_EMPLOYEE.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner/Staff: List all configured phone numbers ordered by display_order.
+    """
+    return db.query(PhoneNumber).order_by(PhoneNumber.display_order.asc(), PhoneNumber.id.asc()).all()
+
+@router.post("/phone-numbers", response_model=PhoneNumberOut)
+def create_phone_number(
+    data: PhoneNumberCreate,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner only: Add a new contact phone number.
+    """
+    phone = PhoneNumber(
+        label=data.label.strip(),
+        phone_number=data.phone_number.strip(),
+        is_active=data.is_active,
+        show_to_customers=data.show_to_customers,
+        display_order=data.display_order
+    )
+    db.add(phone)
+    db.commit()
+    db.refresh(phone)
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="PHONE_NUMBER_CREATED",
+        entity_type="PhoneNumber",
+        entity_id=str(phone.id),
+        details={"label": phone.label, "number": phone.phone_number},
+        ip_address=get_client_ip(request)
+    )
+
+    return phone
+
+@router.put("/phone-numbers/{phone_id}", response_model=PhoneNumberOut)
+def update_phone_number(
+    phone_id: int,
+    data: PhoneNumberUpdate,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner only: Update a contact phone number, active status, or customer visibility.
+    """
+    phone = db.query(PhoneNumber).filter(PhoneNumber.id == phone_id).first()
+    if not phone:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phone number not found.")
+
+    if data.label is not None:
+        phone.label = data.label.strip()
+    if data.phone_number is not None:
+        phone.phone_number = data.phone_number.strip()
+    if data.is_active is not None:
+        phone.is_active = data.is_active
+    if data.show_to_customers is not None:
+        phone.show_to_customers = data.show_to_customers
+    if data.display_order is not None:
+        phone.display_order = data.display_order
+
+    db.commit()
+    db.refresh(phone)
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="PHONE_NUMBER_UPDATED",
+        entity_type="PhoneNumber",
+        entity_id=str(phone.id),
+        details={"label": phone.label, "number": phone.phone_number, "is_active": phone.is_active},
+        ip_address=get_client_ip(request)
+    )
+
+    return phone
+
+@router.delete("/phone-numbers/{phone_id}")
+def delete_phone_number(
+    phone_id: int,
+    request: Request,
+    current_user: User = Depends(require_role([UserRole.OWNER_ADMIN.value])),
+    db: Session = Depends(get_db)
+):
+    """
+    Owner only: Delete a contact phone number.
+    """
+    phone = db.query(PhoneNumber).filter(PhoneNumber.id == phone_id).first()
+    if not phone:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Phone number not found.")
+
+    label = phone.label
+    number = phone.phone_number
+    db.delete(phone)
+    db.commit()
+
+    record_audit(
+        db=db,
+        user=current_user,
+        action="PHONE_NUMBER_DELETED",
+        entity_type="PhoneNumber",
+        entity_id=str(phone_id),
+        details={"label": label, "number": number},
+        ip_address=get_client_ip(request)
+    )
+
+    return {"message": "Phone number deleted successfully"}
+
+@router.get("/public-contact")
+def get_public_contact(db: Session = Depends(get_db)):
+    """
+    Public for guests: Returns all active phone numbers permitted for customer display (Call Only, NO WhatsApp),
+    property name, and location.
+    """
+    phones = db.query(PhoneNumber).filter(
+        PhoneNumber.is_active == True,
+        PhoneNumber.show_to_customers == True
+    ).order_by(PhoneNumber.display_order.asc(), PhoneNumber.id.asc()).all()
+
+    phone_list = [
+        {"id": p.id, "label": p.label, "phone_number": p.phone_number}
+        for p in phones
+    ]
+
+    # Fallback to default if empty
+    if not phone_list:
+        fallback_phone = get_setting(db, "property_contact_phone", "+91 98765 43210")
+        phone_list = [{"id": 0, "label": "Front Desk", "phone_number": fallback_phone}]
+
+    return {
+        "property_name": get_setting(db, "property_name", "Arthayog Dormitory"),
+        "address": get_setting(db, "property_address", "12, Shanti Marg, City Center, Near Metro Station"),
+        "email": get_setting(db, "property_email", "stay@arthayog.com"),
+        "check_in_time": get_setting(db, "property_check_in_time", "12:00 PM"),
+        "check_out_time": get_setting(db, "property_check_out_time", "11:00 AM"),
+        "phone_numbers": phone_list
+    }
+
 

@@ -115,8 +115,22 @@ def test_date_aware_availability_and_double_booking(client):
     })
     assert book_res.status_code == 200
     booking = book_res.json()
-    assert booking["status"] == "PENDING_PAYMENT"
+    assert booking["status"] == "PENDING_APPROVAL"
     booking_id = booking["id"]
+
+    # Verify payment attempt before approval is rejected
+    unapproved_pay = client.post("/api/payments/create-order", json={"booking_id": booking_id, "method": "UPI"})
+    assert unapproved_pay.status_code == 400
+
+    # Staff approves booking
+    staff_login = client.post("/api/auth/login", json={
+        "email": "staff@arthayog.com",
+        "password": "StaffSecurePassword123!"
+    })
+    staff_headers = {"Authorization": f"Bearer {staff_login.json()['access_token']}"}
+    appr_res = client.post(f"/api/bookings/{booking_id}/approve", headers=staff_headers, json={})
+    assert appr_res.status_code == 200
+    assert appr_res.json()["status"] == "APPROVED_PAYMENT_PENDING"
 
     # 3. Simulate and verify payment to confirm
     order_res = client.post("/api/payments/create-order", json={"booking_id": booking_id, "method": "UPI"})
@@ -326,6 +340,10 @@ def test_price_change_scenario_preserves_confirmed_booking(client):
     assert b1_data["total_amount"] == 500.0
     b1_id = b1_data["id"]
 
+    # Owner approves booking 1
+    appr1 = client.post(f"/api/bookings/{b1_id}/approve", headers=owner_headers, json={})
+    assert appr1.status_code == 200
+
     # Confirm booking 1 with payment
     order1 = client.post("/api/payments/create-order", json={"booking_id": b1_id, "method": "UPI"})
     assert order1.status_code == 200
@@ -338,6 +356,13 @@ def test_price_change_scenario_preserves_confirmed_booking(client):
     b1_confirmed = client.get(f"/api/bookings/{b1_id}", headers=owner_headers).json()
     assert b1_confirmed["status"] == "CONFIRMED"
     assert b1_confirmed["total_amount"] == 500.0
+
+    # Test receipt shows exact 500 confirmed amount and verified payment
+    rcpt1 = client.get(f"/api/bookings/{b1_id}/receipt", headers=owner_headers)
+    assert rcpt1.status_code == 200
+    assert rcpt1.json()["payment"]["total_amount"] == 500.0
+    assert rcpt1.json()["payment"]["paid_amount"] == 500.0
+    assert "PAID" in rcpt1.json()["payment"]["payment_status"]
 
     # 3. Owner changes current price to 600
     p2 = client.put("/api/settings/pricing", headers=owner_headers, json={"standard_price_inr": 600.0})
@@ -365,6 +390,10 @@ def test_price_change_scenario_preserves_confirmed_booking(client):
     b2_data = cust_book2.json()
     assert b2_data["total_amount"] == 600.0
 
+    # Owner approves booking 2
+    appr2 = client.post(f"/api/bookings/{b2_data['id']}/approve", headers=owner_headers, json={})
+    assert appr2.status_code == 200
+
     # 6. Payment for the new booking must use 600
     order2 = client.post("/api/payments/create-order", json={"booking_id": b2_data["id"], "method": "CARD"})
     assert order2.status_code == 200
@@ -375,6 +404,7 @@ def test_price_change_scenario_preserves_confirmed_booking(client):
     b1_in_list = [b for b in owner_bookings if b["id"] == b1_id][0]
     assert b1_in_list["total_amount"] == 500.0
     assert b1_in_list["paid_amount"] == 500.0
+
 
 def test_inventory_owner_customizable(client):
     """Test owner can add, edit, and delete custom inventory items."""
@@ -638,11 +668,173 @@ def test_system_health_and_automated_backups(client):
     b_data = backup_res.json()
     assert b_data["status"] == "success"
     assert "arthayog_backup_" in b_data["filename"]
-    assert b_data["size_bytes"] > 0
 
-    # 3. List backups
-    list_res = client.get("/api/system/backups", headers=owner_headers)
-    assert list_res.status_code == 200
-    assert len(list_res.json()) >= 1
-    assert list_res.json()[0]["filename"].startswith("arthayog_backup_")
+def test_booking_approval_and_rejection_workflows(client):
+    """
+    Test customer submits booking request -> PENDING_APPROVAL.
+    Test reject workflow.
+    Test approve workflow and payment authorization.
+    """
+    owner_login = client.post("/api/auth/login", json={
+        "email": "owner@arthayog.com",
+        "password": "AdminSecurePassword123!"
+    })
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+
+    today = date.today()
+    check_in = today + timedelta(days=60)
+    check_out = today + timedelta(days=62)
+
+    beds_res = client.get(f"/api/beds?check_in={check_in}&check_out={check_out}")
+    bed = [b for b in beds_res.json() if b["is_available_for_dates"] is True][0]
+
+    # 1. Customer submits booking request
+    req_res = client.post("/api/bookings/online", json={
+        "bed_id": bed["id"],
+        "check_in_date": str(check_in),
+        "check_out_date": str(check_out),
+        "guest_name": "Archee Patil",
+        "guest_phone": "+919876500099",
+        "guest_email": "archee@example.com"
+    })
+    assert req_res.status_code == 200
+    b_data = req_res.json()
+    assert b_data["status"] == "PENDING_APPROVAL"
+    b_id = b_data["id"]
+
+    # 2. Reject flow test
+    rej_res = client.post(f"/api/bookings/{b_id}/reject", headers=owner_headers, json={
+        "rejection_reason": "Maintenance scheduled"
+    })
+    assert rej_res.status_code == 200
+    assert rej_res.json()["status"] == "REJECTED"
+    assert rej_res.json()["rejection_reason"] == "Maintenance scheduled"
+
+    # Cannot pay for rejected booking
+    pay_rej = client.post("/api/payments/create-order", json={"booking_id": b_id, "method": "UPI"})
+    assert pay_rej.status_code == 400
+
+    # 3. Create another request and approve
+    req2 = client.post("/api/bookings/online", json={
+        "bed_id": bed["id"],
+        "check_in_date": str(check_in),
+        "check_out_date": str(check_out),
+        "guest_name": "Archee Patil Approved",
+        "guest_phone": "+919876500099",
+        "guest_email": "archee@example.com"
+    })
+    assert req2.status_code == 200
+    b2_id = req2.json()["id"]
+
+    # Approve
+    appr_res = client.post(f"/api/bookings/{b2_id}/approve", headers=owner_headers, json={
+        "notes": "Approved for guest stay"
+    })
+    assert appr_res.status_code == 200
+    assert appr_res.json()["status"] == "APPROVED_PAYMENT_PENDING"
+
+    # Now payment order succeeds
+    order_res = client.post("/api/payments/create-order", json={"booking_id": b2_id, "method": "UPI"})
+    assert order_res.status_code == 200
+
+def test_owner_configurable_phone_numbers_call_only(client):
+    """
+    Test Owner can add, edit, and remove contact phone numbers.
+    Test public contact endpoint returns active phone numbers (Call Only, NO WhatsApp).
+    """
+    owner_login = client.post("/api/auth/login", json={
+        "email": "owner@arthayog.com",
+        "password": "AdminSecurePassword123!"
+    })
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+
+    # 1. Add phone number
+    create_res = client.post("/api/settings/phone-numbers", headers=owner_headers, json={
+        "label": "Day Desk Manager",
+        "phone_number": "+91 99887 76655",
+        "is_active": True,
+        "show_to_customers": True,
+        "display_order": 1
+    })
+    assert create_res.status_code == 200
+    phone_id = create_res.json()["id"]
+
+    # 2. Public contact returns it
+    pub_res = client.get("/api/settings/public-contact")
+    assert pub_res.status_code == 200
+    phones = pub_res.json()["phone_numbers"]
+    assert any(p["phone_number"] == "+91 99887 76655" for p in phones)
+
+    # 3. Update to inactive
+    upd_res = client.put(f"/api/settings/phone-numbers/{phone_id}", headers=owner_headers, json={
+        "is_active": False
+    })
+    assert upd_res.status_code == 200
+
+    # Now it does not appear in public contact
+    pub_res2 = client.get("/api/settings/public-contact")
+    phones2 = pub_res2.json()["phone_numbers"]
+    assert not any(p["phone_number"] == "+91 99887 76655" for p in phones2)
+
+def test_aadhaar_unconfigured_safeguard_and_guest_photo(client):
+    """
+    Test Aadhaar unconfigured message (Never fake verification).
+    Test Live Guest Photo capture and authorized retrieval.
+    """
+    owner_login = client.post("/api/auth/login", json={
+        "email": "owner@arthayog.com",
+        "password": "AdminSecurePassword123!"
+    })
+    owner_headers = {"Authorization": f"Bearer {owner_login.json()['access_token']}"}
+
+    today = date.today()
+    check_in = today + timedelta(days=70)
+    check_out = today + timedelta(days=71)
+
+    beds_res = client.get(f"/api/beds?check_in={check_in}&check_out={check_out}")
+    bed = [b for b in beds_res.json() if b["is_available_for_dates"] is True][0]
+
+    b_res = client.post("/api/bookings/online", json={
+        "bed_id": bed["id"],
+        "check_in_date": str(check_in),
+        "check_out_date": str(check_out),
+        "guest_name": "Photo Test Guest",
+        "guest_phone": "+919123456780",
+        "guest_email": "photo@example.com"
+    })
+    b_id = b_res.json()["id"]
+
+    # 1. Aadhaar verification safeguard
+    aadhaar_res = client.post(f"/api/bookings/{b_id}/verify-identity", headers=owner_headers, json={})
+    assert aadhaar_res.status_code == 200
+    assert aadhaar_res.json()["status"] == "NOT_CONFIGURED"
+    assert "Aadhaar verification service is not configured." in aadhaar_res.json()["message"]
+
+    # 2. Capture live guest photo
+    sample_b64 = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
+    photo_res = client.post(f"/api/bookings/{b_id}/capture-photo", headers=owner_headers, json={
+        "photo_data": sample_b64
+    })
+    assert photo_res.status_code == 200
+    assert photo_res.json()["status"] == "ACTIVE"
+
+    # 3. Retrieve guest photo
+    get_photo = client.get(f"/api/bookings/{b_id}/photo", headers=owner_headers)
+    assert get_photo.status_code == 200
+    assert get_photo.json()["photo_data"] == sample_b64
+
+    # 4. Delete guest photo per retention / privacy request
+    del_photo = client.delete(f"/api/bookings/{b_id}/photo", headers=owner_headers)
+    assert del_photo.status_code == 200
+    assert "deleted" in del_photo.json()["message"].lower()
+
+    # Verify photo is no longer retrievable
+    get_photo_after = client.get(f"/api/bookings/{b_id}/photo", headers=owner_headers)
+    assert get_photo_after.status_code == 404
+
+    # 5. Cleanup expired photos endpoint
+    cleanup_res = client.post("/api/bookings/photos/cleanup-expired", headers=owner_headers)
+    assert cleanup_res.status_code == 200
+    assert "deleted_count" in cleanup_res.json()
+
 

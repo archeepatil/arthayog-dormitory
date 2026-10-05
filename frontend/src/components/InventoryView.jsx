@@ -228,11 +228,6 @@ export default function InventoryView({
           <span className="stat-sub">{t('logged_restocks', 'Logged Restocks')}</span>
         </div>
 
-        <div className="card inv-stat-card">
-          <span className="stat-lbl">{t('btn_record_usage', 'Used')}</span>
-          <div className="stat-val text-muted">-{totalUsedUnits}</div>
-          <span className="stat-sub">{t('issued_to_guests', 'Issued to Guests')}</span>
-        </div>
 
         <div className={`card inv-stat-card ${lowStockCount > 0 ? 'alert' : ''}`}>
           <span className="stat-lbl">{t('inv_low_stock', 'Low Stock')}</span>
@@ -353,14 +348,6 @@ export default function InventoryView({
                   <div className="inv-card-actions">
                     <button 
                       type="button"
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => handleOpenTransaction(item, 'USAGE')}
-                      title="Record usage"
-                    >
-                      <Minus size={13} /> {t('inv_action_consume', 'Deduct Used')}
-                    </button>
-                    <button 
-                      type="button"
                       className="btn btn-primary btn-sm"
                       onClick={() => handleOpenTransaction(item, 'PURCHASE')}
                       title="Record purchase/restock"
@@ -448,7 +435,7 @@ export default function InventoryView({
         <div className="modal-backdrop animate-fade-in" onClick={() => setTxModalOpen(false)}>
           <div className="modal-card inv-modal" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{actionType === 'USAGE' ? 'Record Supply Usage' : 'Record Supply Purchase / Restock'}</h3>
+              <h3>Record Supply Purchase / Restock</h3>
               <button type="button" className="btn btn-ghost btn-sm modal-close-btn" onClick={() => setTxModalOpen(false)}>
                 <X size={18} />
               </button>
@@ -462,7 +449,7 @@ export default function InventoryView({
               </div>
 
               <div className="form-group">
-                <label className="form-label">Quantity to {actionType === 'USAGE' ? 'Deduct' : 'Add'} ({selectedItem?.unit}) *</label>
+                <label className="form-label">Quantity to Add ({selectedItem?.unit}) *</label>
                 <input 
                   type="number" 
                   min="1" 
@@ -473,25 +460,23 @@ export default function InventoryView({
                 />
               </div>
 
-              {actionType === 'PURCHASE' && (
-                <div className="form-group">
-                  <label className="form-label">Unit Cost (₹ INR)</label>
-                  <input 
-                    type="number" 
-                    step="0.01" 
-                    value={unitCost} 
-                    onChange={e => setUnitCost(e.target.value)} 
-                    className="form-input" 
-                    placeholder="e.g. 25.00"
-                  />
-                </div>
-              )}
+              <div className="form-group">
+                <label className="form-label">Unit Cost (₹ INR)</label>
+                <input 
+                  type="number" 
+                  step="0.01" 
+                  value={unitCost} 
+                  onChange={e => setUnitCost(e.target.value)} 
+                  className="form-input" 
+                  placeholder="e.g. 25.00"
+                />
+              </div>
 
               <div className="form-group">
-                <label className="form-label">Context / Notes</label>
+                <label className="form-label">Context / Vendor Notes</label>
                 <input 
                   type="text" 
-                  placeholder={actionType === 'USAGE' ? 'e.g. 4 towels issued to Floor 1' : 'e.g. 20 water jars delivered by vendor'} 
+                  placeholder="e.g. 20 water jars delivered by vendor" 
                   value={notes} 
                   onChange={e => setNotes(e.target.value)} 
                   className="form-input" 
@@ -503,7 +488,7 @@ export default function InventoryView({
                   Cancel
                 </button>
                 <button type="submit" className="btn btn-primary">
-                  Confirm {actionType === 'USAGE' ? 'Usage' : 'Restock'}
+                  Confirm Restock
                 </button>
               </div>
             </form>

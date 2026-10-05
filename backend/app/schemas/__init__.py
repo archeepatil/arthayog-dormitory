@@ -121,6 +121,12 @@ class PaymentOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class BookingApproveRequest(BaseModel):
+    notes: Optional[str] = None
+
+class BookingRejectRequest(BaseModel):
+    rejection_reason: Optional[str] = None
+
 class BookingOut(BaseModel):
     id: int
     booking_code: str
@@ -140,15 +146,84 @@ class BookingOut(BaseModel):
     group_code: Optional[str] = None
     event_name: Optional[str] = None
     notes: Optional[str] = None
+    rejection_reason: Optional[str] = None
     total_amount: float
     paid_amount: float
     hold_expires_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    approved_by_id: Optional[int] = None
     checked_in_at: Optional[datetime] = None
     checked_out_at: Optional[datetime] = None
     created_at: datetime
     payments: List[PaymentOut] = []
+    guest_photo_available: bool = False
+    identity_verification_status: Optional[str] = None
+    identity_verification_masked_id: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+class BookingReceiptOut(BaseModel):
+    receipt_number: str
+    generated_at: datetime
+    property: dict
+    customer: dict
+    booking: dict
+    payment: dict
+    status: str
+
+class PhoneNumberCreate(BaseModel):
+    label: str
+    phone_number: str
+    is_active: bool = True
+    show_to_customers: bool = True
+    display_order: int = 0
+
+class PhoneNumberUpdate(BaseModel):
+    label: Optional[str] = None
+    phone_number: Optional[str] = None
+    is_active: Optional[bool] = None
+    show_to_customers: Optional[bool] = None
+    display_order: Optional[int] = None
+
+class PhoneNumberOut(BaseModel):
+    id: int
+    label: str
+    phone_number: str
+    is_active: bool
+    show_to_customers: bool
+    display_order: int
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
+
+class GuestPhotoUpload(BaseModel):
+    photo_data: str  # Base64 data URL
+
+class GuestPhotoOut(BaseModel):
+    id: int
+    booking_id: int
+    guest_id: Optional[int] = None
+    captured_at: datetime
+    status: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+class IdentityVerificationRequest(BaseModel):
+    aadhaar_number: Optional[str] = None
+    verification_method: Optional[str] = "AADHAAR_UIDAI"
+
+class IdentityVerificationOut(BaseModel):
+    id: int
+    booking_id: int
+    guest_id: Optional[int] = None
+    status: str
+    verification_method: Optional[str] = None
+    masked_id: Optional[str] = None
+    provider_reference: Optional[str] = None
+    verified_at: Optional[datetime] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
 
 class GroupBookingCreate(BaseModel):
     guest_name: str
@@ -388,7 +463,9 @@ class DashboardStatsOut(BaseModel):
     today_checkouts_count: int
     pending_payments_count: int
     pending_payments_amount: float
+    pending_approval_count: int = 0
     total_revenue_inr: float
     low_stock_items_count: int
     pending_staff_tasks_count: int
     active_maintenance_count: int
+

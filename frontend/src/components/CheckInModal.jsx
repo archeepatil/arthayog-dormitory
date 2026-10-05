@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { UserCheck, ShieldCheck, X } from 'lucide-react';
+import { api } from '../api';
 import { useLanguage } from '../i18n.jsx';
 
 export default function CheckInModal({ isOpen, onClose, booking, onSubmit }) {
@@ -20,6 +21,16 @@ export default function CheckInModal({ isOpen, onClose, booking, onSubmit }) {
         guest_id_proof_number: idNumber,
         notes: notes || undefined
       });
+      if (idType === 'AADHAAR' && idNumber) {
+        try {
+          await api.bookings.verifyIdentity(booking.id, {
+            aadhaar_number: idNumber,
+            verification_method: 'OFFLINE_PHYSICAL'
+          });
+        } catch (err) {
+          console.log('Auto-verify identity during checkin notice:', err);
+        }
+      }
       onClose();
     } finally {
       setLoading(false);

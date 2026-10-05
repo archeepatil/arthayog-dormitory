@@ -59,10 +59,13 @@ class Bed(Base):
     maintenance_tickets = relationship("MaintenanceTicket", back_populates="bed")
 
 class BookingStatus(str, enum.Enum):
+    PENDING_APPROVAL = "PENDING_APPROVAL"
+    APPROVED_PAYMENT_PENDING = "APPROVED_PAYMENT_PENDING"
     PENDING_PAYMENT = "PENDING_PAYMENT"
     CONFIRMED = "CONFIRMED"
     CHECKED_IN = "CHECKED_IN"
     CHECKED_OUT = "CHECKED_OUT"
+    REJECTED = "REJECTED"
     CANCELLED = "CANCELLED"
     EXPIRED = "EXPIRED"
 
@@ -84,15 +87,18 @@ class Booking(Base):
     bed_id = Column(Integer, ForeignKey("beds.id"), nullable=False)
     check_in_date = Column(Date, nullable=False)
     check_out_date = Column(Date, nullable=False)
-    status = Column(String(50), default=BookingStatus.PENDING_PAYMENT.value, nullable=False, index=True)
+    status = Column(String(50), default=BookingStatus.PENDING_APPROVAL.value, nullable=False, index=True)
     booking_type = Column(String(50), default=BookingType.ONLINE.value, nullable=False)
     notes = Column(Text, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
     total_amount = Column(Float, nullable=False)
     paid_amount = Column(Float, default=0.0, nullable=False)
     group_code = Column(String(50), index=True, nullable=True)
     event_name = Column(String(100), nullable=True)
     hold_expires_at = Column(DateTime, nullable=True, index=True)
     created_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_by_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    approved_at = Column(DateTime, nullable=True)
     checked_in_at = Column(DateTime, nullable=True)
     checked_out_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, default=utcnow, nullable=False)
@@ -100,10 +106,14 @@ class Booking(Base):
 
     guest = relationship("User", foreign_keys=[guest_id], back_populates="bookings")
     created_by = relationship("User", foreign_keys=[created_by_id])
+    approved_by = relationship("User", foreign_keys=[approved_by_id])
     bed = relationship("Bed", back_populates="bookings")
     payments = relationship("Payment", back_populates="booking", cascade="all, delete-orphan")
+    guest_photos = relationship("GuestPhoto", back_populates="booking", cascade="all, delete-orphan")
+    identity_verifications = relationship("IdentityVerification", back_populates="booking", cascade="all, delete-orphan")
 
 class PaymentStatus(str, enum.Enum):
+    NOT_ENABLED = "NOT_ENABLED"
     PENDING = "PENDING"
     SUCCESS = "SUCCESS"
     FAILED = "FAILED"
@@ -269,3 +279,59 @@ class PropertySetting(Base):
     value = Column(Text, nullable=False)
     description = Column(String(255), nullable=True)
     updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+class PhoneNumber(Base):
+    """
+    Owner-configurable phone numbers for guest contact (Call Only).
+    """
+    __tablename__ = "phone_numbers"
+
+    id = Column(Integer, primary_key=True, index=True)
+    label = Column(String(100), nullable=False)  # Front Desk, Owner, Day Staff, Night Staff
+    phone_number = Column(String(30), nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    show_to_customers = Column(Boolean, default=True, nullable=False)
+    display_order = Column(Integer, default=0, nullable=False)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+    updated_at = Column(DateTime, default=utcnow, onupdate=utcnow, nullable=False)
+
+class GuestPhoto(Base):
+    """
+    Secure storage for live guest photo captured at check-in.
+    """
+    __tablename__ = "guest_photos"
+
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False)
+    guest_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    photo_data = Column(Text, nullable=False)  # Secure Base64 or stored asset identifier
+    captured_by_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(String(50), default="ACTIVE", nullable=False)
+    retention_info = Column(String(100), default="30_DAYS", nullable=True)
+    captured_at = Column(DateTime, default=utcnow, nullable=False)
+
+    booking = relationship("Booking", back_populates="guest_photos")
+    captured_by = relationship("User", foreign_keys=[captured_by_user_id])
+
+class IdentityVerification(Base):
+    """
+    Authorized Aadhaar Identity Verification record.
+    Stores only legally permitted audit reference and masked ID.
+    Never stores biometrics, raw passwords, or OTP secrets.
+    """
+    __tablename__ = "identity_verifications"
+
+    id = Column(Integer, primary_key=True, index=True)
+    booking_id = Column(Integer, ForeignKey("bookings.id"), nullable=False)
+    guest_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    status = Column(String(50), default="NOT_VERIFIED", nullable=False)  # VERIFIED, PENDING, FAILED, NOT_VERIFIED
+    verification_method = Column(String(100), default="AADHAAR_UIDAI", nullable=True)
+    masked_id = Column(String(50), nullable=True)  # e.g. XXXX-XXXX-1234
+    provider_reference = Column(String(100), nullable=True)
+    verified_at = Column(DateTime, nullable=True)
+    verified_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=utcnow, nullable=False)
+
+    booking = relationship("Booking", back_populates="identity_verifications")
+    verified_by_user = relationship("User", foreign_keys=[verified_by])
+

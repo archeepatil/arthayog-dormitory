@@ -32,6 +32,11 @@ def is_bed_available_for_dates(
         BookingStatus.CHECKED_IN.value,
     ]
 
+    hold_pending_statuses = [
+        BookingStatus.APPROVED_PAYMENT_PENDING.value,
+        BookingStatus.PENDING_PAYMENT.value,
+    ]
+
     # Query conflicting bookings
     conflict_query = db.query(Booking).filter(
         Booking.bed_id == bed_id,
@@ -40,7 +45,7 @@ def is_bed_available_for_dates(
         or_(
             Booking.status.in_(active_statuses),
             and_(
-                Booking.status == BookingStatus.PENDING_PAYMENT.value,
+                Booking.status.in_(hold_pending_statuses),
                 Booking.hold_expires_at > now
             )
         )
@@ -59,7 +64,10 @@ def expire_unpaid_bookings(db: Session) -> int:
     """
     now = datetime.now(timezone.utc)
     expired_bookings = db.query(Booking).filter(
-        Booking.status == BookingStatus.PENDING_PAYMENT.value,
+        Booking.status.in_([
+            BookingStatus.PENDING_PAYMENT.value,
+            BookingStatus.APPROVED_PAYMENT_PENDING.value
+        ]),
         Booking.hold_expires_at <= now
     ).all()
 

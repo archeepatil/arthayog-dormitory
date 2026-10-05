@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Calendar, 
   BedDouble, 
@@ -7,7 +7,6 @@ import {
   Clock, 
   MapPin, 
   ShieldCheck, 
-  MessageCircle, 
   Zap, 
   Info, 
   Building2, 
@@ -27,8 +26,12 @@ import {
   ChevronRight,
   HelpCircle,
   Check,
-  CalendarCheck
+  CalendarCheck,
+  Receipt,
+  AlertCircle,
+  Eye
 } from 'lucide-react';
+import { api } from '../api';
 import { useLanguage } from '../i18n.jsx';
 
 export default function CustomerPortal({ 
@@ -47,7 +50,8 @@ export default function CustomerPortal({
   setActiveTab,
   onOpenAuth,
   onPayBooking,
-  onSelectBooking
+  onSelectBooking,
+  onOpenReceipt
 }) {
   const { t, language } = useLanguage();
   const [selectedBed, setSelectedBed] = useState(null);
@@ -60,6 +64,20 @@ export default function CustomerPortal({
   const [guestNotes, setGuestNotes] = useState('');
   const [submittingBooking, setSubmittingBooking] = useState(false);
   const [bookingError, setBookingError] = useState('');
+  const [bookingSubmittedSuccess, setBookingSubmittedSuccess] = useState(null);
+  const [publicContact, setPublicContact] = useState(null);
+
+  useEffect(() => {
+    async function loadPublicContact() {
+      try {
+        const contact = await api.settings.getPublicContact();
+        setPublicContact(contact);
+      } catch (err) {
+        console.error('Failed to load public contact numbers:', err);
+      }
+    }
+    loadPublicContact();
+  }, []);
 
   // Fallback defaults from owner settings
   const propName = propertyInfo?.property_name || t('app_title', 'Arthayog Dormitory');
@@ -68,7 +86,6 @@ export default function CustomerPortal({
     ? propertyInfo.description
     : t('hero_subtitle', 'A clean, quiet, and thoughtfully planned 16-bed boutique dormitory offering comfortable living right in the city center.');
   const contactPhone = propertyInfo?.contact_phone || '+91 98765 43210';
-  const whatsappNumber = propertyInfo?.whatsapp_number || '+91 98765 43210';
   const propEmail = propertyInfo?.email || 'stay@arthayog.com';
   const propAddress = propertyInfo?.address || (language === 'mr' ? '१२, शांती मार्ग, बस स्थानक व मेट्रो स्टेशनजवळ, मुख्य बाजारपेठ' : language === 'hi' ? '12, शांति मार्ग, बस स्टैंड व मेट्रो स्टेशन के पास, मुख्य बाजार' : '12, Shanti Marg, City Center, Near Metro Station');
   const propLocation = propertyInfo?.location_details || (language === 'mr' ? 'शहराच्या मुख्य मध्यवर्ती भागात, मध्यवर्ती बस स्थानक व रेल्वे स्टेशनपासून अवघ्या २ मिनिटांच्या अंतरावर.' : language === 'hi' ? 'शहर के मुख्य केंद्र में, केंद्रीय बस स्टैंड व रेलवे स्टेशन से मात्र 2 मिनट की दूरी पर।' : 'Prime downtown location, 2 minutes walk from central transit terminal, food street, and commercial hub.');
@@ -148,13 +165,6 @@ export default function CustomerPortal({
   const currentBedPrice = selectedBed ? selectedBed.base_price_inr : standardPrice;
   const totalPrice = Math.round(currentBedPrice * nights);
 
-  // WhatsApp reservation link
-  const rawWhatsAppPhone = whatsappNumber.replace(/[^0-9]/g, '');
-  const whatsappMessage = selectedBed && checkInDate && checkOutDate
-    ? `Hello ${propName}, I checked Live Availability on your website and would like to reserve Bed ${selectedBed.bed_number} (Floor ${selectedBed.floor_number}) from ${checkInDate} to ${checkOutDate} (${nights} night${nights > 1 ? 's' : ''}, Total ₹${totalPrice}). Please confirm availability.`
-    : `Hello ${propName}, I would like to inquire about dormitory bed availability and reserve a stay.`;
-  const whatsappUrl = `https://wa.me/${rawWhatsAppPhone}?text=${encodeURIComponent(whatsappMessage)}`;
-
   // Filtered beds by floor
   const filteredBeds = beds.filter(b => {
     if (activeFloorFilter === 'ALL') return true;
@@ -186,7 +196,7 @@ export default function CustomerPortal({
     setSubmittingBooking(true);
     try {
       if (onBookBed) {
-        await onBookBed({
+        const res = await onBookBed({
           bed_id: selectedBed.id,
           check_in_date: checkInDate,
           check_out_date: checkOutDate,
@@ -195,6 +205,7 @@ export default function CustomerPortal({
           guest_email: guestEmail.trim(),
           notes: guestNotes.trim() || undefined
         });
+        setBookingSubmittedSuccess(res || true);
       }
     } catch (err) {
       setBookingError(err.message || 'Failed to initiate reservation.');
@@ -245,8 +256,12 @@ export default function CustomerPortal({
                     <span className="pass-lbl">{t('booking_code_label', 'Booking Reference')}</span>
                     <strong className="pass-code">{b.booking_code}</strong>
                   </div>
-                  <span className={`badge badge-${b.status.toLowerCase()}`}>
-                    {t(`status_${b.status.toLowerCase()}`, b.status)}
+                  <span className={`badge badge-${(b.status || '').toLowerCase()}`}>
+                    {b.status === 'PENDING_APPROVAL' ? t('status_pending_approval', 'Awaiting Approval') :
+                     b.status === 'APPROVED_PAYMENT_PENDING' ? t('status_approved_payment_pending', 'Approved — Payment Required') :
+                     b.status === 'CONFIRMED' ? t('status_confirmed', 'Confirmed') :
+                     b.status === 'REJECTED' ? t('status_rejected', 'Booking Request Not Approved') :
+                     t(`status_${(b.status || '').toLowerCase()}`, b.status)}
                   </span>
                 </div>
 
@@ -266,7 +281,9 @@ export default function CustomerPortal({
                   <div className="pass-item">
                     <span className="item-lbl">{t('amount_label', 'Amount')}</span>
                     <strong className="item-val text-primary">₹{b.total_amount}</strong>
-                    <span className="item-sub">{t('paid_label', 'Paid')}: ₹{b.paid_amount || 0}</span>
+                    <span className="item-sub">
+                      {b.paid_amount >= b.total_amount ? 'Payment Successful' : `Paid: ₹${b.paid_amount || 0}`}
+                    </span>
                   </div>
 
                   <div className="pass-item">
@@ -276,15 +293,42 @@ export default function CustomerPortal({
                   </div>
                 </div>
 
+                {/* Status Notice Banners */}
+                {b.status === 'PENDING_APPROVAL' && (
+                  <div className="pass-notice-banner pending-notice">
+                    <Clock size={15} color="#92400E" />
+                    <span>Awaiting Approval • Payment available after front-desk review & approval.</span>
+                  </div>
+                )}
+
+                {b.status === 'APPROVED_PAYMENT_PENDING' && (
+                  <div className="pass-notice-banner approved-notice">
+                    <CreditCard size={15} color="#1E40AF" />
+                    <span>Booking Approved! Please complete payment to confirm your stay reservation.</span>
+                  </div>
+                )}
+
+                {b.status === 'REJECTED' && (
+                  <div className="pass-notice-banner rejected-notice">
+                    <AlertCircle size={15} color="#DC2626" />
+                    <span>Booking Request Not Approved{b.rejection_reason ? `: ${b.rejection_reason}` : '.'}</span>
+                  </div>
+                )}
+
                 <div className="pass-footer">
-                  {b.status === 'PENDING_PAYMENT' && onPayBooking && (
+                  {b.status === 'APPROVED_PAYMENT_PENDING' && onPayBooking && (
                     <button className="btn btn-primary btn-sm" onClick={() => onPayBooking(b)}>
-                      <CreditCard size={14} /> {t('complete_payment', 'Complete Payment')} (₹{b.total_amount - b.paid_amount})
+                      <CreditCard size={14} /> {t('pay_now', 'Pay Now')} (₹{b.total_amount - (b.paid_amount || 0)})
+                    </button>
+                  )}
+                  {['CONFIRMED', 'CHECKED_IN', 'CHECKED_OUT'].includes(b.status) && onOpenReceipt && (
+                    <button className="btn btn-primary btn-sm btn-receipt-view" onClick={() => onOpenReceipt(b)}>
+                      <Receipt size={14} /> {t('view_receipt', 'View Receipt')}
                     </button>
                   )}
                   {onSelectBooking && (
                     <button className="btn btn-secondary btn-sm" onClick={() => onSelectBooking(b)}>
-                      <FileText size={14} /> {t('view_details_receipt', 'View Stay Details & Receipt')}
+                      <Eye size={14} /> {t('view_details', 'View Stay Details')}
                     </button>
                   )}
                 </div>
@@ -603,46 +647,65 @@ export default function CustomerPortal({
                 />
               </div>
 
-              <button 
-                type="submit" 
-                className="btn btn-primary btn-block btn-lg"
-                disabled={submittingBooking || !selectedBed}
-              >
-                <CreditCard size={18} />
-                <span>
-                  {submittingBooking 
-                    ? t('submitting', 'Creating Reservation...') 
-                    : selectedBed 
-                      ? `${t('proceed_to_payment', 'Confirm & Pay')} ₹${totalPrice}` 
-                      : t('select_bed_prompt', 'Select a Bed to Reserve')}
-                </span>
-              </button>
-            </form>
+            {bookingSubmittedSuccess && (
+              <div className="card booking-success-approval-banner animate-fade-in">
+                <CheckCircle2 size={24} color="#059669" />
+                <div className="banner-txt">
+                  <strong>Booking Request Submitted!</strong>
+                  <p>Your booking request has been submitted to Arthayog Dormitory. Our front desk is reviewing it. Payment will be enabled once approved.</p>
+                  <button className="btn btn-primary btn-sm" onClick={() => setActiveTab('guest-bookings')} style={{ marginTop: '8px' }}>
+                    View in My Reservations →
+                  </button>
+                </div>
+              </div>
+            )}
 
-            <div className="or-divider">
-              <span>{t('or_reserve_directly', 'or reserve directly with front desk')}</span>
-            </div>
+            <button 
+              type="submit" 
+              className="btn btn-primary btn-block btn-lg btn-submit-approval"
+              disabled={submittingBooking || !selectedBed}
+            >
+              <CheckCircle2 size={18} />
+              <span>
+                {submittingBooking 
+                  ? t('submitting', 'Submitting Booking Request...') 
+                  : selectedBed 
+                    ? `Submit Booking Request • ₹${totalPrice}` 
+                    : t('select_bed_prompt', 'Select a Bed to Request')}
+              </span>
+            </button>
+            <p className="approval-workflow-note">
+              Payment available after front-desk review & approval.
+            </p>
+          </form>
 
-            {/* Direct Front Desk Actions */}
-            <div className="frontdesk-action-buttons">
+          <div className="or-divider">
+            <span>{t('or_reserve_directly', 'or contact front desk directly')}</span>
+          </div>
+
+          {/* Direct Front Desk Actions - Call Only (Page 16) */}
+          <div className="frontdesk-action-buttons">
+            {publicContact?.phone_numbers && publicContact.phone_numbers.length > 0 ? (
+              publicContact.phone_numbers.map((pn, idx) => (
+                <a 
+                  key={idx}
+                  href={`tel:${pn.phone_number}`} 
+                  className="btn btn-secondary btn-block call-action-btn"
+                >
+                  <PhoneCall size={16} color="#C25E40" />
+                  <span>Call {pn.label}: {pn.phone_number}</span>
+                </a>
+              ))
+            ) : (
               <a 
                 href={`tel:${contactPhone}`} 
-                className="btn btn-secondary btn-block"
+                className="btn btn-secondary btn-block call-action-btn"
               >
-                <PhoneCall size={16} />
-                <span>{t('call_frontdesk_btn', 'Call Front Desk')}: {contactPhone}</span>
+                <PhoneCall size={16} color="#C25E40" />
+                <span>Call Front Desk: {contactPhone}</span>
               </a>
-
-              <a 
-                href={whatsappUrl} 
-                target="_blank" 
-                rel="noopener noreferrer" 
-                className="btn btn-secondary btn-block whatsapp-btn"
-              >
-                <MessageCircle size={16} color="#16A34A" />
-                <span>{t('whatsapp_quote', 'Reserve via WhatsApp')}</span>
-              </a>
-            </div>
+            )}
+          </div>
 
             <div className="frontdesk-meta-details">
               <div className="meta-line">
@@ -1268,9 +1331,68 @@ export default function CustomerPortal({
           flex-direction: column;
           gap: 8px;
         }
-        .whatsapp-btn {
-          border-color: #86EFAC;
+        .call-action-btn {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          border-color: #F0D5C7;
+          color: #2D2A26;
+        }
+        .call-action-btn:hover {
+          background: #FAF4EF;
+          border-color: #C25E40;
+        }
+        .booking-success-approval-banner {
+          background: #F0FDF4;
+          border: 1px solid #BBF7D0;
+          padding: 16px;
+          border-radius: 8px;
+          display: flex;
+          align-items: flex-start;
+          gap: 12px;
+          margin-bottom: 14px;
+        }
+        .banner-txt strong {
+          color: #166534;
+          font-size: 0.92rem;
+          display: block;
+        }
+        .banner-txt p {
           color: #15803D;
+          font-size: 0.8rem;
+          margin: 4px 0 0 0;
+        }
+        .approval-workflow-note {
+          font-size: 0.74rem;
+          color: var(--text-muted);
+          text-align: center;
+          margin-top: 6px;
+        }
+        .pass-notice-banner {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 8px 12px;
+          border-radius: 4px;
+          font-size: 0.78rem;
+          font-weight: 600;
+          margin-top: 10px;
+        }
+        .pending-notice {
+          background: #FFFBEB;
+          border: 1px solid #FDE68A;
+          color: #92400E;
+        }
+        .approved-notice {
+          background: #EFF6FF;
+          border: 1px solid #BFDBFE;
+          color: #1E40AF;
+        }
+        .rejected-notice {
+          background: #FEF2F2;
+          border: 1px solid #FECACA;
+          color: #991B1B;
         }
         .frontdesk-meta-details {
           border-top: 1px solid var(--border-subtle);

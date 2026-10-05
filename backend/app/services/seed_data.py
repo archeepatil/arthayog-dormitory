@@ -99,4 +99,24 @@ def seed_initial_data(db: Session):
             )
             db.add(inv)
 
+    # 6. Seed Owner-Configurable Phone Numbers (Call Only - No WhatsApp)
+    from app.models import PhoneNumber
+    initial_phones = [
+        ("Front Desk", "+91 98765 43210", 1),
+        ("Owner / Operations", "+91 98765 43211", 2),
+        ("Emergency / Night Desk", "+91 98765 43212", 3)
+    ]
+    for lbl, num, order in initial_phones:
+        p = db.query(PhoneNumber).filter(PhoneNumber.phone_number == num).first()
+        if not p:
+            p = PhoneNumber(
+                label=lbl,
+                phone_number=num,
+                is_active=True,
+                show_to_customers=True,
+                display_order=order
+            )
+            db.add(p)
+
     db.commit()
+

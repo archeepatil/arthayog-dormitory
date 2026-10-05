@@ -37,7 +37,6 @@ export default function OwnerSettingsView({ onSettingsUpdated, onShowToast }) {
     logo_url: '',
     description: '',
     contact_phone: '+91 98765 43210',
-    whatsapp_number: '+91 98765 43210',
     email: 'stay@arthayog.com',
     address: '12, Shanti Marg, City Center, Near Metro Station',
     location_details: 'Prime downtown location, 2 minutes walk from central transit terminal.',
@@ -110,17 +109,24 @@ export default function OwnerSettingsView({ onSettingsUpdated, onShowToast }) {
   const [backups, setBackups] = useState([]);
   const [backingUp, setBackingUp] = useState(false);
 
+  // Owner-Configurable Phone Numbers State (addition of this.pdf page 16)
+  const [phoneNumbers, setPhoneNumbers] = useState([]);
+  const [newPhoneLabel, setNewPhoneLabel] = useState('Front Desk');
+  const [newPhoneNumber, setNewPhoneNumber] = useState('');
+  const [newPhonePublic, setNewPhonePublic] = useState(true);
+
   const loadAllSettings = async () => {
     setLoading(true);
     try {
-      const [propData, priceData, staffData, revData, payQrData, healthData, backupsData] = await Promise.allSettled([
+      const [propData, priceData, staffData, revData, payQrData, healthData, backupsData, phonesData] = await Promise.allSettled([
         api.settings.getProperty(),
         api.settings.getPricing(),
         api.settings.getStaffRoster(),
         api.settings.getReview(),
         api.settings.getPaymentQr(),
         api.system.health(),
-        api.system.backups()
+        api.system.backups(),
+        api.settings.listPhoneNumbers()
       ]);
 
       if (propData.status === 'fulfilled' && propData.value) {
@@ -151,11 +157,56 @@ export default function OwnerSettingsView({ onSettingsUpdated, onShowToast }) {
       if (backupsData.status === 'fulfilled' && backupsData.value) {
         setBackups(backupsData.value);
       }
+      if (phonesData.status === 'fulfilled' && phonesData.value) {
+        setPhoneNumbers(phonesData.value);
+      }
     } catch (e) {
       console.error('Error loading settings:', e);
       if (onShowToast) onShowToast('Failed to load some settings.', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleAddPhone = async () => {
+    if (!newPhoneNumber.trim()) return;
+    try {
+      const created = await api.settings.createPhoneNumber({
+        phone_number: newPhoneNumber.trim(),
+        label: newPhoneLabel.trim() || 'Front Desk',
+        is_active: true,
+        show_to_customers: newPhonePublic
+      });
+      setPhoneNumbers(prev => [...prev, created]);
+      setNewPhoneNumber('');
+      if (onShowToast) onShowToast('Phone number added successfully!', 'success');
+      if (onSettingsUpdated) onSettingsUpdated();
+    } catch (err) {
+      if (onShowToast) onShowToast(err.message || 'Failed to add phone number.', 'error');
+    }
+  };
+
+  const handleDeletePhone = async (id) => {
+    try {
+      await api.settings.deletePhoneNumber(id);
+      setPhoneNumbers(prev => prev.filter(p => p.id !== id));
+      if (onShowToast) onShowToast('Phone number removed.', 'info');
+      if (onSettingsUpdated) onSettingsUpdated();
+    } catch (err) {
+      if (onShowToast) onShowToast(err.message || 'Failed to remove phone number.', 'error');
+    }
+  };
+
+  const handleTogglePhone = async (phone) => {
+    try {
+      const updated = await api.settings.updatePhoneNumber(phone.id, {
+        show_to_customers: !phone.show_to_customers
+      });
+      setPhoneNumbers(prev => prev.map(p => p.id === phone.id ? updated : p));
+      if (onShowToast) onShowToast('Phone visibility updated.', 'success');
+      if (onSettingsUpdated) onSettingsUpdated();
+    } catch (err) {
+      if (onShowToast) onShowToast(err.message || 'Failed to update visibility.', 'error');
     }
   };
 
@@ -589,27 +640,17 @@ export default function OwnerSettingsView({ onSettingsUpdated, onShowToast }) {
             </div>
 
             <div className="card form-section-card">
-              <h3 className="section-title">Contact & Location</h3>
-              <p className="section-sub">Direct phone, WhatsApp number, and address displayed to guests.</p>
+              <h3 className="section-title">Contact & Location (Call Only)</h3>
+              <p className="section-sub">Direct phone numbers and property address displayed to guests. (WhatsApp removed — Call Only)</p>
 
-              <div className="form-grid-3">
+              <div className="form-grid-2">
                 <div className="form-group">
-                  <label className="form-label">Contact Phone Number *</label>
+                  <label className="form-label">Primary Contact Phone *</label>
                   <input 
                     type="tel" 
                     className="form-input" 
                     value={property.contact_phone} 
                     onChange={(e) => setProperty({ ...property, contact_phone: e.target.value })}
-                    required
-                  />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">WhatsApp Number *</label>
-                  <input 
-                    type="tel" 
-                    className="form-input" 
-                    value={property.whatsapp_number} 
-                    onChange={(e) => setProperty({ ...property, whatsapp_number: e.target.value })}
                     required
                   />
                 </div>
@@ -623,6 +664,81 @@ export default function OwnerSettingsView({ onSettingsUpdated, onShowToast }) {
                     required
                   />
                 </div>
+              </div>
+
+              {/* Owner-Configurable Phone Numbers Management (Page 16) */}
+              <div className="phone-numbers-management-box">
+                <div className="pn-header">
+                  <Phone size={16} color="#C25E40" />
+                  <strong>Direct Call Phone Numbers (Customer Visible)</strong>
+                </div>
+                <p className="pn-subtext">Add multiple phone numbers (Front Desk, Night Duty, Manager) for direct customer calling.</p>
+
+                <div className="pn-add-form">
+                  <input 
+                    type="text" 
+                    className="form-input pn-label-input" 
+                    placeholder="Label (e.g. Front Desk, Duty Manager)" 
+                    value={newPhoneLabel}
+                    onChange={(e) => setNewPhoneLabel(e.target.value)}
+                  />
+                  <input 
+                    type="tel" 
+                    className="form-input pn-num-input" 
+                    placeholder="Phone number (+91 ...)" 
+                    value={newPhoneNumber}
+                    onChange={(e) => setNewPhoneNumber(e.target.value)}
+                  />
+                  <label className="pn-public-check">
+                    <input 
+                      type="checkbox" 
+                      checked={newPhonePublic}
+                      onChange={(e) => setNewPhonePublic(e.target.checked)}
+                    />
+                    <span>Show to Customers</span>
+                  </label>
+                  <button 
+                    type="button" 
+                    className="btn btn-secondary btn-sm"
+                    onClick={handleAddPhone}
+                  >
+                    <Plus size={14} /> Add Phone
+                  </button>
+                </div>
+
+                {phoneNumbers.length > 0 && (
+                  <div className="pn-list">
+                    {phoneNumbers.map(pn => (
+                      <div key={pn.id} className="pn-item">
+                        <div className="pn-item-info">
+                          <strong>{pn.label}:</strong>
+                          <span className="font-mono">{pn.phone_number}</span>
+                          <span className={`pn-vis-badge ${pn.show_to_customers ? 'vis-public' : 'vis-private'}`}>
+                            {pn.show_to_customers ? 'Public (Visible)' : 'Internal Only'}
+                          </span>
+                        </div>
+                        <div className="pn-item-actions">
+                          <button 
+                            type="button" 
+                            className="btn btn-ghost btn-sm"
+                            onClick={() => handleTogglePhone(pn)}
+                            title="Toggle Customer Visibility"
+                          >
+                            Toggle Visibility
+                          </button>
+                          <button 
+                            type="button" 
+                            className="btn btn-ghost btn-sm text-danger"
+                            onClick={() => handleDeletePhone(pn.id)}
+                            title="Remove Number"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               <div className="form-grid-2">

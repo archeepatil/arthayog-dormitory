@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
-from app.core.database import engine, Base, SessionLocal
+from app.core.database import engine, Base, SessionLocal, migrate_db
 from app.services.seed_data import seed_initial_data
 from app.services.booking_service import expire_unpaid_bookings
 from app.api.routers import (
@@ -41,6 +41,8 @@ async def lifespan(app: FastAPI):
     # Startup: Create tables and seed data
     logger.info("Initializing database tables...")
     Base.metadata.create_all(bind=engine)
+    migrate_db()
+
 
     logger.info("Seeding initial ERP data (16 beds, supplies, default admin)...")
     db = SessionLocal()

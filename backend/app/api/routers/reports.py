@@ -43,10 +43,17 @@ def get_dashboard_metrics(
     ).count()
 
     pending_bookings = db.query(Booking).filter(
-        Booking.status == BookingStatus.PENDING_PAYMENT.value
+        Booking.status.in_([
+            BookingStatus.PENDING_PAYMENT.value,
+            BookingStatus.APPROVED_PAYMENT_PENDING.value
+        ])
     ).all()
     pending_payments_count = len(pending_bookings)
     pending_payments_amount = round(sum(b.total_amount - b.paid_amount for b in pending_bookings), 2)
+
+    pending_approval_count = db.query(Booking).filter(
+        Booking.status == BookingStatus.PENDING_APPROVAL.value
+    ).count()
 
     # Actual verified successful revenue
     revenue_res = db.query(func.coalesce(func.sum(Payment.amount), 0.0)).filter(
@@ -77,11 +84,13 @@ def get_dashboard_metrics(
         today_checkouts_count=today_checkouts,
         pending_payments_count=pending_payments_count,
         pending_payments_amount=pending_payments_amount,
+        pending_approval_count=pending_approval_count,
         total_revenue_inr=total_revenue_inr,
         low_stock_items_count=low_stock_items_count,
         pending_staff_tasks_count=pending_staff_tasks_count,
         active_maintenance_count=active_maintenance_count
     )
+
 
 @router.get("/detailed-analytics")
 def get_detailed_analytics(

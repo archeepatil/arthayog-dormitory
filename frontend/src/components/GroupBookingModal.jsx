@@ -362,7 +362,7 @@ export default function GroupBookingModal({ isOpen, onClose, onSuccess, initialF
 
               <div className="form-row-2">
                 <div className="form-field">
-                  <label className="form-label">{t('phone_label', 'Phone Number (WhatsApp)')} *</label>
+                  <label className="form-label">{t('phone_label', 'Contact Phone Number')} *</label>
                   <input
                     type="tel"
                     className="form-input"

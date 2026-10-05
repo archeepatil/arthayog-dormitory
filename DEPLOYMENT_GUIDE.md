@@ -115,4 +115,4 @@ Whenever you want to make any UI changes, styling tweaks, or new features:
    git push
    ```
 3. **Vercel and Render will automatically detect the push and re-deploy your site within 60 seconds.**
-4. You can also make operational changes directly from the **Owner Dashboard** on the live site without touching code (update room rates, UPI QR code, property rules, WhatsApp contact, etc.).
+4. You can also make operational changes directly from the **Owner Dashboard** on the live site without touching code (update room rates, UPI QR code, property rules, direct phone contact numbers, etc.).

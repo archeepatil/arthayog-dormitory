@@ -10,7 +10,8 @@ import {
   FileText,
   Menu,
   X,
-  Settings
+  Settings,
+  Calendar as CalendarIcon
 } from 'lucide-react';
 import { useLanguage, LanguageSelector } from '../i18n.jsx';
 
@@ -38,6 +39,7 @@ export default function Navbar({
     { id: 'dashboard', label: t('nav_dashboard', 'Dashboard'), icon: LayoutDashboard },
     { id: 'beds', label: t('nav_beds', '16 Beds'), icon: BedDouble },
     { id: 'bookings', label: t('nav_bookings', 'Bookings'), icon: ClipboardList },
+    { id: 'calendar', label: t('nav_calendar', 'Calendar'), icon: CalendarIcon },
     { id: 'inventory', label: t('nav_inventory', 'Inventory'), icon: Package },
     { id: 'settings', label: t('nav_settings', 'Settings & Pricing'), icon: Settings },
     { id: 'audit', label: t('nav_audit', 'Audit Logs'), icon: FileText },
@@ -45,6 +47,7 @@ export default function Navbar({
     { id: 'staff-board', label: t('nav_daily_board', 'Daily Operations'), icon: LayoutDashboard },
     { id: 'beds', label: t('nav_beds', '16 Beds'), icon: BedDouble },
     { id: 'bookings', label: t('nav_bookings', 'Bookings'), icon: ClipboardList },
+    { id: 'calendar', label: t('nav_calendar', 'Calendar'), icon: CalendarIcon },
     { id: 'inventory', label: t('nav_inventory', 'Inventory'), icon: Package },
   ] : user ? [
     { id: 'guest-book', label: t('nav_live_availability', 'Live Availability'), icon: BedDouble },

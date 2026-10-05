@@ -39,7 +39,7 @@ pytest tests/test_backend.py -v
 # Run FastAPI backend server
 uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
-API OpenAPI Swagger documentation is available at: `http://127.0.0.1:8000/docs`
+API OpenAPI Swagger documentation is available at: [http://127.0.0.1:8000/docs](http://127.0.0.1:8000/docs) *(when backend server is running)*
 
 ### 2. Frontend Setup
 ```bash
@@ -52,7 +52,7 @@ npm install
 # Start Vite dev server
 npm run dev -- --host 127.0.0.1 --port 5173
 ```
-Access the application at: `http://127.0.0.1:5173`
+Access the application at: [http://127.0.0.1:5173](http://127.0.0.1:5173) *(when frontend dev server is running)*
 
 ---
 
@@ -89,5 +89,5 @@ Access the application at: `http://127.0.0.1:5173`
 ## 🌐 Option B Cloud Deployment (Vercel & Render)
 
 For complete instructions on launching the live production website and backend with automatic GitHub CD, see:
-👉 **[DEPLOYMENT_GUIDE.md](file:///c:/Users/Acer/Desktop/Arthayog%20dormitory/DEPLOYMENT_GUIDE.md)**
+👉 **[DEPLOYMENT_GUIDE.md](./DEPLOYMENT_GUIDE.md)**
 

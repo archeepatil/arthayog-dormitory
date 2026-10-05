@@ -107,12 +107,31 @@ export const api = {
     checkIn: (id, data) => request(`/bookings/${id}/check-in`, { method: 'POST', body: JSON.stringify(data) }),
     checkOut: (id, data) => request(`/bookings/${id}/check-out`, { method: 'POST', body: JSON.stringify(data) }),
     cancel: (id, reason) => request(`/bookings/${id}/cancel`, { method: 'POST', body: JSON.stringify({ cancellation_reason: reason }) }),
+    approve: (id, notes) => request(`/bookings/${id}/approve`, { method: 'POST', body: JSON.stringify({ notes }) }),
+    reject: (id, reason) => request(`/bookings/${id}/reject`, { method: 'POST', body: JSON.stringify({ rejection_reason: reason }) }),
+    getReceipt: (id) => request(`/bookings/${id}/receipt`),
+    capturePhoto: (id, payload) => {
+      const body = typeof payload === 'string' ? { photo_data: payload } : (payload?.photo_data ? payload : { photo_data: payload });
+      return request(`/bookings/${id}/capture-photo`, { method: 'POST', body: JSON.stringify(body) });
+    },
+    getPhoto: (id) => request(`/bookings/${id}/photo`),
+    deletePhoto: (id) => request(`/bookings/${id}/photo`, { method: 'DELETE' }),
+    cleanupExpiredPhotos: () => request('/bookings/photos/cleanup-expired', { method: 'POST' }),
+    verifyIdentity: (id, payload) => {
+      const body = typeof payload === 'string'
+        ? { aadhaar_number: payload }
+        : { aadhaar_number: payload?.aadhaar_number || payload?.id_number || '', verification_method: payload?.verification_method || 'AADHAAR_UIDAI' };
+      return request(`/bookings/${id}/verify-identity`, { method: 'POST', body: JSON.stringify(body) });
+    },
+    getIdentity: (id) => request(`/bookings/${id}/identity`),
     expireCheck: () => request('/bookings/expire-check', { method: 'POST' }),
     createGroup: (data) => request('/bookings/group', { method: 'POST', body: JSON.stringify(data) }),
     getGroup: (groupCode) => request(`/bookings/group/${groupCode}`),
     listActiveGroups: () => request('/bookings/groups/active'),
     modifyGroup: (groupCode, data) => request(`/bookings/group/${groupCode}`, { method: 'PUT', body: JSON.stringify(data) }),
     cancelGroup: (groupCode) => request(`/bookings/group/${groupCode}/cancel`, { method: 'POST' }),
+    approveGroup: (groupCode, notes) => request(`/bookings/group/${groupCode}/approve`, { method: 'POST', body: JSON.stringify({ notes }) }),
+    rejectGroup: (groupCode, reason) => request(`/bookings/group/${groupCode}/reject`, { method: 'POST', body: JSON.stringify({ rejection_reason: reason }) }),
     checkInGroup: (groupCode) => request(`/bookings/group/${groupCode}/check-in`, { method: 'POST' }),
     checkOutGroup: (groupCode) => request(`/bookings/group/${groupCode}/check-out`, { method: 'POST' }),
   },
@@ -202,6 +221,11 @@ export const api = {
     getPaymentQr: () => request('/settings/payment-qr'),
     updatePaymentQr: (data) => request('/settings/payment-qr', { method: 'PUT', body: JSON.stringify(data) }),
     disablePaymentQr: () => request('/settings/payment-qr', { method: 'DELETE' }),
+    getPublicContact: () => request('/settings/public-contact'),
+    listPhoneNumbers: () => request('/settings/phone-numbers'),
+    createPhoneNumber: (data) => request('/settings/phone-numbers', { method: 'POST', body: JSON.stringify(data) }),
+    updatePhoneNumber: (id, data) => request(`/settings/phone-numbers/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+    deletePhoneNumber: (id) => request(`/settings/phone-numbers/${id}`, { method: 'DELETE' }),
   },
 
   // System Health & Backups (Owner only)
