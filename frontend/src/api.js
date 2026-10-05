@@ -1,6 +1,14 @@
-const API_BASE = import.meta.env.VITE_API_URL 
-  ? `${import.meta.env.VITE_API_URL.replace(/\/$/, '')}/api` 
-  : '/api';
+const getApiBase = () => {
+  let url = import.meta.env.VITE_API_URL;
+  if (!url) return '/api';
+  url = url.trim().replace(/\/$/, '');
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    url = `https://${url}`;
+  }
+  return `${url}/api`;
+};
+
+const API_BASE = getApiBase();
 
 export function getToken() {
   return localStorage.getItem('arthayog_token');

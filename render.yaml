@@ -14,7 +14,7 @@ services:
       - key: ENVIRONMENT
         value: production
       - key: DATABASE_URL
-        value: sqlite:////var/data/arthayog.db
+        value: sqlite:///./arthayog.db
       - key: SECRET_KEY
         generateValue: true
       - key: ACCESS_TOKEN_EXPIRE_MINUTES
@@ -33,10 +33,6 @@ services:
         value: staff@arthayog.com
       - key: INITIAL_STAFF_PASSWORD
         value: StaffSecurePassword123!
-    disk:
-      name: arthayog-data
-      mountPath: /var/data
-      sizeGB: 1
 
   # Frontend Static Site
   - type: web
@@ -45,7 +41,14 @@ services:
     rootDir: frontend
     buildCommand: npm install && npm run build
     staticPublishPath: dist
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: arthayog-backend
+          property: host
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
+
