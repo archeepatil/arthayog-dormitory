@@ -218,14 +218,15 @@ def get_developer_diagnostics(
     Provides system telemetry, database row counts, bed operational state, worker heartbeat, and error tracking.
     """
     dev_pin = request.headers.get("X-Dev-Pin") or request.query_params.get("pin")
+    pin_clean = str(dev_pin).strip().lower() if dev_pin else ""
     # Verify PIN or allow if authenticated
-    if dev_pin != "dev2026":
+    if pin_clean != "dev2026":
         # Check if auth header is valid Bearer token for admin
         auth_hdr = request.headers.get("Authorization")
         if not auth_hdr:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Developer access requires secret PIN authorization."
+                detail="Developer access requires secret PIN authorization (PIN: dev2026)."
             )
 
     import sys
@@ -343,12 +344,13 @@ def get_developer_report_pdf(
     STRICT PRIVACY: All financial metrics (revenue, prices, payment amounts) are completely omitted.
     """
     dev_pin = request.headers.get("X-Dev-Pin") or request.query_params.get("pin")
-    if dev_pin != "dev2026":
+    pin_clean = str(dev_pin).strip().lower() if dev_pin else ""
+    if pin_clean != "dev2026":
         auth_hdr = request.headers.get("Authorization")
         if not auth_hdr:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Developer access requires secret PIN authorization."
+                detail="Developer access requires secret PIN authorization (PIN: dev2026)."
             )
 
     # Search for PDF report file in known locations

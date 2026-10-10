@@ -50,7 +50,14 @@ export default function DeveloperPortal({ onClose }) {
       if (!isBackground) {
         setIsAuthenticated(false);
         sessionStorage.removeItem('arthayog_dev_pin');
-        setPinError('Invalid Developer Passcode. Access denied.');
+        const msg = err?.message || '';
+        if (msg.includes('Failed to fetch') || msg.includes('NetworkError') || msg.includes('Load failed')) {
+          setPinError('Unable to connect to backend server. Please verify the backend is running on http://127.0.0.1:8000.');
+        } else if (msg.includes('PIN authorization') || msg.includes('401')) {
+          setPinError('Invalid Developer Passcode. Use PIN: dev2026');
+        } else {
+          setPinError(msg || 'Invalid Developer Passcode. Access denied.');
+        }
       }
     } finally {
       if (!isBackground) setLoading(false);
@@ -76,12 +83,13 @@ export default function DeveloperPortal({ onClose }) {
   const handlePinSubmit = (e) => {
     e.preventDefault();
     setPinError('');
-    if (!pinInput.trim()) {
-      setPinError('Please enter the developer passcode.');
+    const cleanPin = pinInput.trim().toLowerCase();
+    if (!cleanPin) {
+      setPinError('Please enter the developer passcode (dev2026).');
       return;
     }
-    setPin(pinInput.trim());
-    loadDiagnostics(pinInput.trim());
+    setPin(cleanPin);
+    loadDiagnostics(cleanPin);
   };
 
   const handlePing = async () => {
@@ -212,11 +220,34 @@ export default function DeveloperPortal({ onClose }) {
             <input 
               type="password" 
               className="dev-pin-input" 
-              placeholder="••••••••"
+              placeholder="Enter PIN (dev2026)"
               value={pinInput}
               onChange={(e) => setPinInput(e.target.value)}
               autoFocus
             />
+            <div style={{ fontSize: '0.8rem', color: '#94a3b8', margin: '-4px 0 12px 0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span>Passcode: <strong style={{ color: '#06b6d4' }}>dev2026</strong></span>
+              <button 
+                type="button" 
+                onClick={() => {
+                  setPinInput('dev2026');
+                  setPin('dev2026');
+                  loadDiagnostics('dev2026');
+                }}
+                style={{
+                  background: 'rgba(6, 182, 212, 0.12)',
+                  border: '1px solid rgba(6, 182, 212, 0.3)',
+                  color: '#38bdf8',
+                  borderRadius: '4px',
+                  padding: '2px 8px',
+                  cursor: 'pointer',
+                  fontSize: '0.75rem',
+                  fontWeight: 600
+                }}
+              >
+                Auto-fill & Unlock
+              </button>
+            </div>
             <button 
               type="submit" 
               className="btn-dev-submit" 
